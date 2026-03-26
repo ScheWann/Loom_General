@@ -19,7 +19,7 @@ function App() {
           maxWidth: '100%',
         }}
       >
-        <GeneralTrajectoryGlyph title="Trajectory glyph (demo)" />
+        <GeneralTrajectoryGlyph />
       </div>
     </div>
   )

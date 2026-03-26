@@ -1,0 +1,48 @@
+{
+  "paths": [
+    {
+      "label": "Path 1",
+      "nodes": [0, 1, 2, 3],
+      "times": [0.02, 0.22, 0.55, 0.92],
+      "coverage": 0.42,
+      "samples_valid": 420,
+      "samples_total": 1000
+    },
+    {
+      "label": "Path 2",
+      "nodes": [0, 2, 3],
+      "times": [0.05, 0.48, 0.88],
+      "coverage": 0.31,
+      "samples_valid": 310,
+      "samples_total": 1000
+    }
+  ],
+  "axis_order": [0, 1, 2, 3],
+  "series_by_path": [
+    {
+      "path_index": 0,
+      "series": [
+        {
+          "id": "feature1",
+          "times": [0.05, 0.25, 0.55, 0.9],
+          "values": [0.18, 0.75, 0.38, 0.88]
+        },
+        {
+          "id": "feature2",
+          "times": [0.05, 0.25, 0.55, 0.9],
+          "values": [0.28, 0.5, 0.62, 0.45]
+        }
+      ]
+    },
+    {
+      "path_index": 1,
+      "series": [
+        {
+          "id": "feature1",
+          "times": [0.08, 0.45, 0.86],
+          "values": [0.22, 0.58, 0.72]
+        }
+      ]
+    }
+  ]
+}

@@ -1,41 +1,44 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import * as d3 from "d3";
 import { COLOR_BREWER2_PALETTE } from "./Utils";
-import fakeGeneralGlyphPseudotime from "./data/fakeGeneralGlyphPseudotime.json";
+import fakeGeneralGlyphDemo from "./data/fakeGeneralGlyphDemo.json";
 
 const COLORS = COLOR_BREWER2_PALETTE;
 
-/** Demo pseudotime payload from JSON; shape matches PseudotimeGlyph `trajectory_objects` + `cluster_order`. */
-export const FAKE_GENERAL_GLYPH_PSEUDOTIME = fakeGeneralGlyphPseudotime;
+/**
+ * Map neutral demo JSON → shape expected by the D3 layer (aligned with PseudotimeGlyph).
+ */
+function adaptDemoJsonToGlyphPayload(demo) {
+    const pseudotime = {
+        trajectory_objects: demo.paths.map((p) => ({
+            name: p.label,
+            path: p.nodes,
+            pseudotimes: p.times,
+            coverage: p.coverage,
+            valid_cells: p.samples_valid,
+            total_cells: p.samples_total,
+        })),
+        cluster_order: demo.axis_order,
+    };
+    const seriesByTrajectory = demo.series_by_path.map((row) => ({
+        trajectory_id: row.path_index,
+        gene_expression_data: row.series.map((s) => ({
+            gene: s.id,
+            timePoints: s.times,
+            expressions: s.values,
+        })),
+    }));
+    return { pseudotime, seriesByTrajectory };
+}
 
-/** Per-trajectory gene rows; `gene_expression_data` is what `PseudotimeGlyph` expects. */
-export const FAKE_GENERAL_GLYPH_GENES = [
-    {
-        trajectory_id: 0,
-        gene_expression_data: [
-            {
-                gene: "SOX2",
-                timePoints: [0.05, 0.25, 0.55, 0.9],
-                expressions: [0.18, 0.75, 0.38, 0.88],
-            },
-            {
-                gene: "NESTIN",
-                timePoints: [0.05, 0.25, 0.55, 0.9],
-                expressions: [0.28, 0.5, 0.62, 0.45],
-            },
-        ],
-    },
-    {
-        trajectory_id: 1,
-        gene_expression_data: [
-            {
-                gene: "SOX2",
-                timePoints: [0.08, 0.45, 0.86],
-                expressions: [0.22, 0.58, 0.72],
-            },
-        ],
-    },
-];
+const { pseudotime: _demoPseudotime, seriesByTrajectory: _demoSeries } =
+    adaptDemoJsonToGlyphPayload(fakeGeneralGlyphDemo);
+
+/** Demo paths + axis order (internal keys match PseudotimeGlyph). */
+export const FAKE_GENERAL_GLYPH_PSEUDOTIME = _demoPseudotime;
+
+/** Demo series per path (internal keys match PseudotimeGlyph). */
+export const FAKE_GENERAL_GLYPH_GENES = _demoSeries;
 
 export const FAKE_GENERAL_GLYPH_CLUSTER_COLORS = {
     0: "#8DD3C7",
@@ -45,11 +48,11 @@ export const FAKE_GENERAL_GLYPH_CLUSTER_COLORS = {
 };
 
 /**
- * Self-contained radial glyph from `PseudotimeGlyph`: upper semicircle = gene expression vs time,
- * lower semicircle = cluster trajectories. No selection checkbox / area chrome — suitable as a reusable viz.
+ * Radial glyph: upper semicircle = series (value vs time), lower semicircle = paths on category axes.
+ * No selection checkbox / area chrome.
  */
 export const GeneralTrajectoryGlyph = ({
-    title = "General trajectory glyph (demo)",
+    title = null,
     pseudotimeData = FAKE_GENERAL_GLYPH_PSEUDOTIME,
     geneExpressionData = FAKE_GENERAL_GLYPH_GENES,
     clusterColors = FAKE_GENERAL_GLYPH_CLUSTER_COLORS,
@@ -339,22 +342,22 @@ export const GeneralTrajectoryGlyph = ({
         // Create top section - gene expression gauge
         createTopSection(g, selectedGeneData, centerX, centerY, axisLength, maxPseudotime, minPseudotime, tooltip, selectedTrajectory);
 
-        // Add title with UMAP parameters tooltip
-        const titleText = svg.append("text")
-            .attr("x", width / 2)
-            .attr("y", height - 5)
-            .attr("text-anchor", "middle")
-            .attr("font-size", "12px")
-            .attr("font-weight", "bold")
-            .attr("fill", "#333")
-            .style("cursor", "pointer")
-            .text(title);
+        // Optional bottom title (+ UMAP tooltip when umapParameters set)
+        if (title) {
+            const titleText = svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", height - 5)
+                .attr("text-anchor", "middle")
+                .attr("font-size", "12px")
+                .attr("font-weight", "bold")
+                .attr("fill", "#333")
+                .style("cursor", umapParameters ? "pointer" : "default")
+                .text(title);
 
-        // Add tooltip functionality for UMAP parameters
-        if (umapParameters) {
-            titleText
-                .on("mouseover", function (event) {
-                    const tooltipContent = `
+            if (umapParameters) {
+                titleText
+                    .on("mouseover", function (event) {
+                        const tooltipContent = `
                       <div style="font-size: 12px; line-height: 1.4;">
                           <div style="font-weight: bold; margin-bottom: 4px; color: #fff;">UMAP Parameters:</div>
                           <div style="color: #ccc;">Neighbors: ${umapParameters.n_neighbors}</div>
@@ -363,17 +366,18 @@ export const GeneralTrajectoryGlyph = ({
                       </div>
                   `;
 
-                    tooltip.html(tooltipContent)
-                        .style("visibility", "visible");
+                        tooltip.html(tooltipContent)
+                            .style("visibility", "visible");
 
-                    positionTooltip(event, tooltip);
-                })
-                .on("mousemove", function (event) {
-                    positionTooltip(event, tooltip);
-                })
-                .on("mouseout", function () {
-                    tooltip.style("visibility", "hidden");
-                });
+                        positionTooltip(event, tooltip);
+                    })
+                    .on("mousemove", function (event) {
+                        positionTooltip(event, tooltip);
+                    })
+                    .on("mouseout", function () {
+                        tooltip.style("visibility", "hidden");
+                    });
+            }
         }
     };
 
@@ -784,7 +788,7 @@ export const GeneralTrajectoryGlyph = ({
             .attr("text-anchor", "middle")
             .attr("font-size", "10px")
             .attr("fill", "#666")
-            .text("Low Expr");
+            .text("Low");
 
         topSection.append("text")
             .attr("x", centerX + maxRadius * 0.7)
@@ -792,7 +796,7 @@ export const GeneralTrajectoryGlyph = ({
             .attr("text-anchor", "middle")
             .attr("font-size", "10px")
             .attr("fill", "#666")
-            .text("High Expr");
+            .text("High");
 
         // Only proceed with gene expression specific elements if data is provided
         if (!geneData || !Array.isArray(geneData) || geneData.length === 0) {
@@ -1000,11 +1004,11 @@ export const GeneralTrajectoryGlyph = ({
 
                             tooltip.style("visibility", "visible")
                                 .html(`
-                              <div><strong>Gene Expression: ${geneInfo.gene}</strong></div>
-                              <div>Time span: ${timeSpan}</div>
-                              <div>Expression range: ${minExpression.toFixed(2)} - ${maxExpression.toFixed(2)}</div>
-                              <div>Average expression: ${avgExpressionFormatted}</div>
-                              <div style="font-style: italic; color: #ccc; font-size: 11px;">Dashed line shows average expression level</div>
+                              <div><strong>Series: ${geneInfo.gene}</strong></div>
+                                <div>Time span: ${timeSpan}</div>
+                                <div>Value range: ${minExpression.toFixed(2)} - ${maxExpression.toFixed(2)}</div>
+                                <div>Mean value: ${avgExpressionFormatted}</div>
+                                <div style="font-style: italic; color: #ccc; font-size: 11px;">Dashed line shows mean value</div>
                           `);
                             positionTooltip(event, tooltip);
                         })
@@ -1051,12 +1055,12 @@ export const GeneralTrajectoryGlyph = ({
                         const avgExpressionFormatted = avgExpression.toFixed(2);
                         tooltip.style("visibility", "visible")
                             .html(`
-                              <div><strong>Gene Expression Point</strong></div>
-                              <div>Gene: ${geneInfo.gene}</div>
-                              <div>Time: ${point.timePoint.toFixed(2)}</div>
-                              <div>Expression: ${point.expression.toFixed(3)}</div>
-                              <div>Average expression: ${avgExpressionFormatted}</div>
-                              <div style="font-style: italic; color: #ccc; font-size: 11px;">Dashed line shows average expression level</div>
+                                <div><strong>Point</strong></div>
+                                <div>Id: ${geneInfo.gene}</div>
+                                <div>Time: ${point.timePoint.toFixed(2)}</div>
+                                <div>Value: ${point.expression.toFixed(3)}</div>
+                                <div>Mean value: ${avgExpressionFormatted}</div>
+                                <div style="font-style: italic; color: #ccc; font-size: 11px;">Dashed line shows mean value</div>
                           `);
                         positionTooltip(event, tooltip);
                     })
@@ -1224,7 +1228,7 @@ export const GeneralTrajectoryGlyph = ({
                             onMouseEnter={() => handleLegendEnter(item.index)}
                             onMouseLeave={handleLegendLeave}
                             onClick={() => setSelectedTrajectory(item.index)}
-                            title={`${item.sequence}\nCoverage: ${(item.coverage * 100).toFixed(1)}% (${item.validCells}/${item.totalCells} cells)`}
+                            title={`${item.sequence}\nCoverage: ${(item.coverage * 100).toFixed(1)}% (${item.validCells}/${item.totalCells} samples)`}
                             style={{
                                 display: "flex",
                                 alignItems: "center",
