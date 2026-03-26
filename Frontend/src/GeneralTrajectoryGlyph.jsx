@@ -6,17 +6,16 @@ import fakeGeneralGlyphDemo from "./data/fakeGeneralGlyphDemo.json";
 const COLORS = COLOR_BREWER2_PALETTE;
 
 /**
- * Map neutral demo JSON → shape expected by the D3 layer (aligned with PseudotimeGlyph).
+ * Map neutral demo JSON → shape expected by the D3 layer.
+ * For each `series_by_path` row, every `series[].times` should match `paths[path_index].times`
+ * (same length and values) so upper-semicircle samples align with path knot times.
  */
 function adaptDemoJsonToGlyphPayload(demo) {
-    const pseudotime = {
+    const trajectoryPayload = {
         trajectory_objects: demo.paths.map((p) => ({
             name: p.label,
             path: p.nodes,
-            pseudotimes: p.times,
-            coverage: p.coverage,
-            valid_cells: p.samples_valid,
-            total_cells: p.samples_total,
+            times: p.times,
         })),
         cluster_order: demo.axis_order,
     };
@@ -28,16 +27,16 @@ function adaptDemoJsonToGlyphPayload(demo) {
             expressions: s.values,
         })),
     }));
-    return { pseudotime, seriesByTrajectory };
+    return { trajectoryPayload, seriesByTrajectory };
 }
 
-const { pseudotime: _demoPseudotime, seriesByTrajectory: _demoSeries } =
+const { trajectoryPayload: _demoTrajectory, seriesByTrajectory: _demoSeries } =
     adaptDemoJsonToGlyphPayload(fakeGeneralGlyphDemo);
 
-/** Demo paths + axis order (internal keys match PseudotimeGlyph). */
-export const FAKE_GENERAL_GLYPH_PSEUDOTIME = _demoPseudotime;
+/** Demo paths + axis order. */
+export const FAKE_GENERAL_GLYPH_TRAJECTORY_DATA = _demoTrajectory;
 
-/** Demo series per path (internal keys match PseudotimeGlyph). */
+/** Demo series per path. */
 export const FAKE_GENERAL_GLYPH_GENES = _demoSeries;
 
 export const FAKE_GENERAL_GLYPH_CLUSTER_COLORS = {
@@ -49,14 +48,12 @@ export const FAKE_GENERAL_GLYPH_CLUSTER_COLORS = {
 
 /**
  * Radial glyph: upper semicircle = series (value vs time), lower semicircle = paths on category axes.
- * No selection checkbox / area chrome.
  */
 export const GeneralTrajectoryGlyph = ({
     title = null,
-    pseudotimeData = FAKE_GENERAL_GLYPH_PSEUDOTIME,
+    trajectoryData = FAKE_GENERAL_GLYPH_TRAJECTORY_DATA,
     geneExpressionData = FAKE_GENERAL_GLYPH_GENES,
     clusterColors = FAKE_GENERAL_GLYPH_CLUSTER_COLORS,
-    umapParameters = null,
     selectedTrajectory: selectedTrajectoryProp,
     onTrajectoryChange,
     className,
@@ -76,15 +73,15 @@ export const GeneralTrajectoryGlyph = ({
     };
 
     useEffect(() => {
-        if (!pseudotimeData) return;
+        if (!trajectoryData) return;
         let trajectoryCount = 0;
-        if (pseudotimeData.trajectory_objects && Array.isArray(pseudotimeData.trajectory_objects)) {
-            trajectoryCount = pseudotimeData.trajectory_objects.length;
+        if (trajectoryData.trajectory_objects && Array.isArray(trajectoryData.trajectory_objects)) {
+            trajectoryCount = trajectoryData.trajectory_objects.length;
         }
         if (trajectoryCount > 0 && selectedTrajectory >= trajectoryCount) {
             setInternalTrajectory(0);
         }
-    }, [pseudotimeData, selectedTrajectory]);
+    }, [trajectoryData, selectedTrajectory]);
 
     const [componentId] = useState(() => `general-glyph-${Math.random().toString(36).slice(2, 11)}`);
 
@@ -139,33 +136,31 @@ export const GeneralTrajectoryGlyph = ({
     useEffect(() => {
         let hasValidData = false;
         if (
-            pseudotimeData &&
-            pseudotimeData.trajectory_objects &&
-            Array.isArray(pseudotimeData.trajectory_objects) &&
-            pseudotimeData.trajectory_objects.length > 0
+            trajectoryData &&
+            trajectoryData.trajectory_objects &&
+            Array.isArray(trajectoryData.trajectory_objects) &&
+            trajectoryData.trajectory_objects.length > 0
         ) {
             hasValidData = true;
         }
         if (hasValidData && dimensions.width > 0 && dimensions.height > 0) {
-            createGlyph(pseudotimeData);
+            createGlyph(trajectoryData);
         }
     }, [
-        pseudotimeData,
+        trajectoryData,
         dimensions,
         geneExpressionData,
         clusterColors,
         selectedTrajectory,
         selectedGeneData,
         title,
-        umapParameters,
     ]);
 
     useEffect(() => {
         return () => {
-            d3.select("body").selectAll(`.pseudotime-tooltip-${componentId}`).remove();
+            d3.select("body").selectAll(`.glyph-tooltip-${componentId}`).remove();
         };
     }, [componentId]);
-
 
     // Helper function to position tooltip within viewport
     const positionTooltip = (event, tooltip) => {
@@ -232,10 +227,10 @@ export const GeneralTrajectoryGlyph = ({
             .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
         // Create tooltip (remove existing ones first to avoid duplicates)
-        d3.select("body").selectAll(`.pseudotime-tooltip-${componentId}`).remove();
+        d3.select("body").selectAll(`.glyph-tooltip-${componentId}`).remove();
         const tooltip = d3.select("body")
             .append("div")
-            .attr("class", `pseudotime-tooltip-${componentId}`)
+            .attr("class", `glyph-tooltip-${componentId}`)
             .style("position", "fixed")
             .style("visibility", "hidden")
             .style("background", "rgba(0, 0, 0, 0.9)")
@@ -267,19 +262,18 @@ export const GeneralTrajectoryGlyph = ({
             clusterOrder = dataToUse.cluster_order;
         } else {
             // Invalid structure
-            console.warn('Invalid pseudotime data structure:', dataToUse);
+            console.warn('Invalid trajectory data structure:', dataToUse);
             return;
         }
 
-        const maxPseudotime = Math.max(...trajectories.flatMap(traj => {
-            // Handle both 'pseudotimes' and 'pseudotime' property names
-            const pseudotimeArray = traj.pseudotimes || traj.pseudotime || [];
-            return pseudotimeArray.map(pt => parseFloat(pt));
+        const maxTime = Math.max(...trajectories.flatMap(traj => {
+            const pathTimes = traj.times || [];
+            return pathTimes.map(pt => parseFloat(pt));
         }));
 
-        const minPseudotime = Math.min(...trajectories.flatMap(traj => {
-            const pseudotimeArray = traj.pseudotimes || traj.pseudotime || [];
-            return pseudotimeArray.map(pt => parseFloat(pt));
+        const minTime = Math.min(...trajectories.flatMap(traj => {
+            const pathTimes = traj.times || [];
+            return pathTimes.map(pt => parseFloat(pt));
         }));
 
         // Color scale for different cell states/clusters
@@ -293,10 +287,10 @@ export const GeneralTrajectoryGlyph = ({
             cluster_order: clusterOrder
         };
 
-        // Use cluster colors from UMAP if available, otherwise use default colors
+        // Use supplied category colors when provided, otherwise default palette
         let clusterColorScale;
         if (clusterColors) {
-            // Create a color scale using the colors from the UMAP
+            // Build ordinal scale from the color map
             // Handle both full cluster names and numeric keys
             const colorRange = allClusters.map(cluster => {
                 // Try the full cluster name first
@@ -334,54 +328,28 @@ export const GeneralTrajectoryGlyph = ({
             .attr("font-size", "5px")
             .attr("font-weight", "bold")
             .attr("fill", "#333")
-            .text(`t${minPseudotime.toFixed(1)}`);
+            .text(`t${minTime.toFixed(1)}`);
 
         // Create bottom section - macroscopic cell trajectories
-        createBottomSection(g, structuredData, centerX, centerY, axisLength, maxPseudotime, minPseudotime, clusterColorScale, tooltip, selectedTrajectory, setSelectedTrajectory);
+        createBottomSection(g, structuredData, centerX, centerY, axisLength, maxTime, minTime, clusterColorScale, tooltip, selectedTrajectory, setSelectedTrajectory);
 
         // Create top section - gene expression gauge
-        createTopSection(g, selectedGeneData, centerX, centerY, axisLength, maxPseudotime, minPseudotime, tooltip, selectedTrajectory);
+        createTopSection(g, selectedGeneData, centerX, centerY, axisLength, maxTime, minTime, tooltip, selectedTrajectory);
 
-        // Optional bottom title (+ UMAP tooltip when umapParameters set)
+        // Optional bottom title
         if (title) {
-            const titleText = svg.append("text")
+            svg.append("text")
                 .attr("x", width / 2)
                 .attr("y", height - 5)
                 .attr("text-anchor", "middle")
                 .attr("font-size", "12px")
                 .attr("font-weight", "bold")
                 .attr("fill", "#333")
-                .style("cursor", umapParameters ? "pointer" : "default")
                 .text(title);
-
-            if (umapParameters) {
-                titleText
-                    .on("mouseover", function (event) {
-                        const tooltipContent = `
-                      <div style="font-size: 12px; line-height: 1.4;">
-                          <div style="font-weight: bold; margin-bottom: 4px; color: #fff;">UMAP Parameters:</div>
-                          <div style="color: #ccc;">Neighbors: ${umapParameters.n_neighbors}</div>
-                          <div style="color: #ccc;">PCAs: ${umapParameters.n_pcas}</div>
-                          <div style="color: #ccc;">Resolution: ${umapParameters.resolutions}</div>
-                      </div>
-                  `;
-
-                        tooltip.html(tooltipContent)
-                            .style("visibility", "visible");
-
-                        positionTooltip(event, tooltip);
-                    })
-                    .on("mousemove", function (event) {
-                        positionTooltip(event, tooltip);
-                    })
-                    .on("mouseout", function () {
-                        tooltip.style("visibility", "hidden");
-                    });
-            }
         }
     };
 
-    const createBottomSection = (g, trajectoryDataStructure, centerX, centerY, axisLength, maxPseudotime, minPseudotime, clusterColorScale, tooltip, selectedTrajectory, setSelectedTrajectory) => {
+    const createBottomSection = (g, trajectoryDataStructure, centerX, centerY, axisLength, maxTime, minTime, clusterColorScale, tooltip, selectedTrajectory, setSelectedTrajectory) => {
         const bottomSection = g.append("g").attr("class", "bottom-section");
         const maxRadius = axisLength / 2 - 15;
 
@@ -452,7 +420,7 @@ export const GeneralTrajectoryGlyph = ({
         // Add concentric circles for time scale
         const timeScaleFractions = [0.25, 0.5, 0.75, 1.0];
         timeScaleFractions.forEach(fraction => {
-            const timeValue = maxPseudotime * fraction;
+            const timeValue = maxTime * fraction;
             const radius = (8 + (maxRadius - 8) * fraction);
 
             // Draw semicircle arc for time indication (bottom half)
@@ -472,9 +440,9 @@ export const GeneralTrajectoryGlyph = ({
                 .attr("opacity", 0.7);
         });
 
-        // Scale for converting pseudotime to radial distance
+        // Scale for converting time to radial distance
         const radiusScale = d3.scaleLinear()
-            .domain([minPseudotime, maxPseudotime])
+            .domain([minTime, maxTime])
             .range([8, maxRadius]); // Start from time point 0 circle edge (radius 8)
 
         // Color scale for different trajectories
@@ -484,8 +452,7 @@ export const GeneralTrajectoryGlyph = ({
         const trajectories = trajectoryDataStructure.trajectory_objects || trajectoryDataStructure;
         trajectories.forEach((trajectory, trajIndex) => {
             const { path } = trajectory;
-            // Handle both 'pseudotimes' and 'pseudotime' property names
-            const pseudotimes = trajectory.pseudotimes || trajectory.pseudotime || [];
+            const pathTimes = trajectory.times || [];
             const trajectoryColor = trajectoryColors[trajIndex % trajectoryColors.length];
 
             // Build interpolated points for smooth curves
@@ -493,16 +460,16 @@ export const GeneralTrajectoryGlyph = ({
 
             for (let i = 0; i < path.length; i++) {
                 const cluster = parseInt(path[i]);
-                const pseudotime = parseFloat(pseudotimes[i]);
+                const timeAtNode = parseFloat(pathTimes[i]);
                 const angle = clusterToAngle.get(cluster);
-                const radius = radiusScale(pseudotime);
+                const radius = radiusScale(timeAtNode);
 
                 if (angle !== undefined) {
                     trajectoryPoints.push({
                         x: centerX + radius * Math.cos(angle),
                         y: centerY + radius * Math.sin(angle),
                         cluster: cluster,
-                        pseudotime: pseudotime,
+                        time: timeAtNode,
                         angle: angle,
                         radius: radius
                     });
@@ -518,14 +485,14 @@ export const GeneralTrajectoryGlyph = ({
                     const next = trajectoryPoints[i + 1];
 
                     // Number of interpolation points based on time difference
-                    const timeDiff = Math.abs(next.pseudotime - current.pseudotime);
-                    const numPoints = Math.max(12, Math.floor(60 * timeDiff / maxPseudotime));
+                    const timeDiff = Math.abs(next.time - current.time);
+                    const numPoints = Math.max(12, Math.floor(60 * timeDiff / maxTime));
 
                     for (let j = 0; j <= numPoints; j++) {
                         const t = j / numPoints;
-                        const interpPseudotime = current.pseudotime + t * (next.pseudotime - current.pseudotime);
+                        const interpTime = current.time + t * (next.time - current.time);
                         const interpAngle = current.angle + t * (next.angle - current.angle);
-                        const interpRadius = radiusScale(interpPseudotime);
+                        const interpRadius = radiusScale(interpTime);
 
                         pathData.push({
                             x: centerX + interpRadius * Math.cos(interpAngle),
@@ -557,10 +524,11 @@ export const GeneralTrajectoryGlyph = ({
                     .attr("opacity", opacity)
                     .style("cursor", "pointer")
                     .on("mouseover", function (event) {
-                        const isCurrentlySelected = trajIndex === selectedTrajectory;
-                        const selectionText = isCurrentlySelected ? "Currently selected" : "Click to select";
-                        tooltip.style("visibility", "visible")
-                            .html(`<strong>Trajectory ${trajIndex + 1}</strong><br/>Path: ${path.join(' → ')}<br/>Time range: ${pseudotimes[0]?.toFixed(3) || 'N/A'} - ${pseudotimes[pseudotimes.length - 1]?.toFixed(3) || 'N/A'}<br/>${selectionText}`);
+                        let html = `<strong>Trajectory ${trajIndex + 1}</strong><br/>Path: ${path.join(' → ')}<br/>Time range: ${pathTimes[0]?.toFixed(3) || 'N/A'} - ${pathTimes[pathTimes.length - 1]?.toFixed(3) || 'N/A'}`;
+                        if (trajIndex !== selectedTrajectory) {
+                            html += "<br/>Click to select";
+                        }
+                        tooltip.style("visibility", "visible").html(html);
                         positionTooltip(event, tooltip);
 
                         // Highlight this trajectory on hover
@@ -643,7 +611,7 @@ export const GeneralTrajectoryGlyph = ({
                             .style("cursor", "pointer")
                             .on("mouseover", function (event) {
                                 tooltip.style("visibility", "visible")
-                                    .html(`<strong>Cluster ${point.cluster}</strong><br/>Pseudotime: ${point.pseudotime.toFixed(3)}<br/>Trajectory: ${trajIndex + 1}`);
+                                    .html(`<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}<br/>Trajectory: ${trajIndex + 1}`);
                                 positionTooltip(event, tooltip);
 
                                 // Restore original color on hover
@@ -668,7 +636,7 @@ export const GeneralTrajectoryGlyph = ({
                             .style("cursor", "pointer")
                             .on("mouseover", function (event) {
                                 tooltip.style("visibility", "visible")
-                                    .html(`<strong>Cluster ${point.cluster}</strong><br/>Pseudotime: ${point.pseudotime.toFixed(3)}<br/>Trajectory: ${trajIndex + 1}`);
+                                    .html(`<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}<br/>Trajectory: ${trajIndex + 1}`);
                                 positionTooltip(event, tooltip);
                             })
                             .on("mousemove", function (event) {
@@ -693,7 +661,7 @@ export const GeneralTrajectoryGlyph = ({
                         .style("cursor", "pointer")
                         .on("mouseover", function (event) {
                             tooltip.style("visibility", "visible")
-                                .html(`<strong>Cluster ${point.cluster}</strong><br/>Pseudotime: ${point.pseudotime.toFixed(3)}<br/>Trajectory: ${trajIndex + 1}`);
+                                .html(`<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}<br/>Trajectory: ${trajIndex + 1}`);
                             positionTooltip(event, tooltip);
 
                             // Restore original color on hover for non-selected trajectories
@@ -721,7 +689,7 @@ export const GeneralTrajectoryGlyph = ({
         });
     };
 
-    const createTopSection = (g, geneData, centerX, centerY, axisLength, maxPseudotime, minPseudotime, tooltip, selectedTrajectory) => {
+    const createTopSection = (g, geneData, centerX, centerY, axisLength, maxTime, minTime, tooltip, selectedTrajectory) => {
         const maxRadius = axisLength / 2 - 15;
         const topSection = g.append("g").attr("class", "top-section");
 
@@ -755,11 +723,11 @@ export const GeneralTrajectoryGlyph = ({
 
         // Add concentric circles for time progression using trajectory data time range
         // These should always be shown as a time reference
-        const trajectoryTimeRange = maxPseudotime - minPseudotime;
+        const trajectoryTimeRange = maxTime - minTime;
         const numTimeCircles = 4;
         for (let i = 1; i <= numTimeCircles; i++) {
-            const time = minPseudotime + (i / numTimeCircles) * trajectoryTimeRange;
-            const radius = 8 + ((time - minPseudotime) / trajectoryTimeRange) * (maxRadius - 8);
+            const time = minTime + (i / numTimeCircles) * trajectoryTimeRange;
+            const radius = 8 + ((time - minTime) / trajectoryTimeRange) * (maxRadius - 8);
 
             // Draw complete circles
             topSection.append("circle")
@@ -807,7 +775,7 @@ export const GeneralTrajectoryGlyph = ({
         // Time point scale (radial distance represents time progression)
         // Use the same scaling as concentric circles and trajectory data
         const timeScale = d3.scaleLinear()
-            .domain([minPseudotime, maxPseudotime])
+            .domain([minTime, maxTime])
             .range([8, maxRadius]); // Start from time point 0 circle edge (radius 8)
 
         // Expression scale (angular position - higher expression = more to the right)
@@ -1125,17 +1093,14 @@ export const GeneralTrajectoryGlyph = ({
     };
 
     const legendItems = (() => {
-        if (!pseudotimeData?.trajectory_objects || !Array.isArray(pseudotimeData.trajectory_objects)) {
+        if (!trajectoryData?.trajectory_objects || !Array.isArray(trajectoryData.trajectory_objects)) {
             return [];
         }
-        return pseudotimeData.trajectory_objects.map((traj, i) => ({
+        return trajectoryData.trajectory_objects.map((traj, i) => ({
             index: i,
             name: traj.name || `Trajectory ${i + 1}`,
             color: COLORS[i % COLORS.length],
             sequence: Array.isArray(traj.path) ? traj.path.join(" → ") : "",
-            coverage: traj.coverage ?? 0,
-            validCells: traj.valid_cells ?? 0,
-            totalCells: traj.total_cells ?? 0,
         }));
     })();
 
@@ -1228,7 +1193,7 @@ export const GeneralTrajectoryGlyph = ({
                             onMouseEnter={() => handleLegendEnter(item.index)}
                             onMouseLeave={handleLegendLeave}
                             onClick={() => setSelectedTrajectory(item.index)}
-                            title={`${item.sequence}\nCoverage: ${(item.coverage * 100).toFixed(1)}% (${item.validCells}/${item.totalCells} samples)`}
+                            title={item.sequence ? item.sequence : item.name}
                             style={{
                                 display: "flex",
                                 alignItems: "center",
