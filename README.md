@@ -1,8 +1,6 @@
 # Loom: General Trajectory Glyph
 
-This repository provides the new glyph used in the **[Loom](https://github.com/ScheWann/Loom)**.
-
-___A reusable General Trajectory Glyph component that combines path evolution and multi-metric variation in a single view, suitable for time-progressive data___.
+This repository provides a reusable General Trajectory Glyph component for **[Loom](https://github.com/ScheWann/Loom)**, designed to visualize both path evolution and multi-metric variation in a single view for time-progressive data.
 
 ![General Trajectory Glyph](Image/Glyph_General.png)
 
