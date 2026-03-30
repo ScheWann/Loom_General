@@ -51,6 +51,39 @@ function resolveTrajectoryIndex(trajectoryId) {
     return Number(trajectoryId);
 }
 
+function getRingTimes(minTime, maxTime, ringCount, rawTimePoints) {
+    const uniqueSorted = Array.from(
+        new Set(
+            (rawTimePoints || [])
+                .map((t) => Number(t))
+                .filter((t) => Number.isFinite(t)),
+        ),
+    ).sort((a, b) => a - b);
+
+    const allIntegerTimes =
+        uniqueSorted.length > 0 &&
+        uniqueSorted.every((t) => Math.abs(t - Math.round(t)) < 1e-9);
+
+    if (allIntegerTimes && uniqueSorted.length > 1) {
+        const integerCandidates = uniqueSorted.slice(1);
+        if (integerCandidates.length <= ringCount) {
+            return integerCandidates;
+        }
+
+        const lastIndex = integerCandidates.length - 1;
+        return Array.from({ length: ringCount }, (_, i) => {
+            const idx = Math.round(((i + 1) / ringCount) * lastIndex);
+            return integerCandidates[idx];
+        });
+    }
+
+    const range = Math.max(maxTime - minTime, 0);
+    return Array.from(
+        { length: ringCount },
+        (_, i) => minTime + ((i + 1) / ringCount) * range,
+    );
+}
+
 const {
     trajectoryPayload: _defaultTrajectory,
     seriesByTrajectory: _defaultSeries,
@@ -319,10 +352,23 @@ export const GeneralTrajectoryGlyph = ({
             }),
         );
 
+        const allTimePoints = trajectories
+            .flatMap((traj) => (traj.times || []).map((pt) => parseFloat(pt)))
+            .filter((t) => Number.isFinite(t));
+
+        const uniqueTimePoints = Array.from(new Set(allTimePoints)).sort(
+            (a, b) => a - b,
+        );
+
+        const hasOnlyIntegerTimes =
+            uniqueTimePoints.length > 0 &&
+            uniqueTimePoints.every((t) => Math.abs(t - Math.round(t)) < 1e-9);
+
         const timeSpan = Math.max(maxTime - minTime, 0);
         /** Enough fractional digits so nearby times (e.g. 0.1–0.2) do not all round to the same label. */
         const formatTimeLabel = (t) => {
             if (!Number.isFinite(t)) return "";
+            if (hasOnlyIntegerTimes) return String(Math.round(t));
             const decimals = timeSpan > 0 && timeSpan < 1 ? 2 : timeSpan < 50 ? 2 : 1;
             return t.toFixed(decimals);
         };
@@ -379,6 +425,7 @@ export const GeneralTrajectoryGlyph = ({
             minTime,
             tooltip,
             formatTimeLabel,
+            uniqueTimePoints,
         );
 
         // Optional bottom title
@@ -829,6 +876,7 @@ export const GeneralTrajectoryGlyph = ({
         minTime,
         tooltip,
         formatTimeLabel,
+        availableTimePoints,
     ) => {
         const maxRadius = axisLength / 2 - 15;
         const topSection = g.append("g").attr("class", "top-section");
@@ -870,10 +918,15 @@ export const GeneralTrajectoryGlyph = ({
         const trajectoryTimeRange = Math.max(maxTime - minTime, 0);
         const safeRange = trajectoryTimeRange > 0 ? trajectoryTimeRange : 1e-9;
         const numTimeCircles = 4;
+        const ringTimes = getRingTimes(
+            minTime,
+            maxTime,
+            numTimeCircles,
+            availableTimePoints,
+        );
         const labelTime = (t) =>
             formatTimeLabel ? formatTimeLabel(t) : t.toFixed(2);
-        for (let i = 1; i <= numTimeCircles; i++) {
-            const time = minTime + (i / numTimeCircles) * trajectoryTimeRange;
+        ringTimes.forEach((time) => {
             const radius = 8 + ((time - minTime) / safeRange) * (maxRadius - 8);
 
             // Draw complete circles
@@ -896,7 +949,7 @@ export const GeneralTrajectoryGlyph = ({
                 .attr("font-size", "8px")
                 .attr("fill", "#666")
                 .text(`t${labelTime(time)}`);
-        }
+            });
 
         // Add expression level indicators for upper semicircle (always show these)
         topSection
