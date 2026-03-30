@@ -1,8 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import * as d3 from "d3";
 import { COLOR_BREWER2_PALETTE } from "./Utils";
-import defaultGlyphDemo from "./data/contrails2MaxClusterGlyph.json";
-import climateGlyphDemo from "./data/climateGlyph.json";
 
 const COLORS = COLOR_BREWER2_PALETTE;
 
@@ -84,32 +82,9 @@ function getRingTimes(minTime, maxTime, ringCount, rawTimePoints) {
     );
 }
 
-const {
-    trajectoryPayload: _defaultTrajectory,
-    seriesByTrajectory: _defaultSeries,
-} = adaptDemoJsonToGlyphPayload(defaultGlyphDemo);
-
-/** Default demo paths + axis order. */
-export const DEFAULT_GLYPH_TRAJECTORY_DATA = _defaultTrajectory;
-
-/** Default demo series per path. */
-export const DEFAULT_GLYPH_SERIES = _defaultSeries;
-
-const {
-    trajectoryPayload: _climateTrajectory,
-    seriesByTrajectory: _climateSeries,
-} = adaptDemoJsonToGlyphPayload(climateGlyphDemo);
-
-/** Climate paths + axis order. */
-export const CLIMATE_GLYPH_TRAJECTORY_DATA = _climateTrajectory;
-
-/** Climate series per path. */
-export const CLIMATE_GLYPH_SERIES = _climateSeries;
-
-
 export const GeneralTrajectoryGlyph = ({
     title = null,
-    preset = "default",
+    demoData,
     trajectoryData: trajectoryDataProp,
     seriesData: seriesDataProp,
     expressionData,
@@ -118,16 +93,20 @@ export const GeneralTrajectoryGlyph = ({
     className,
     style,
 }) => {
-    const isClimatePreset = preset === "climate2014_2024";
+    const adaptedDemoData = useMemo(() => {
+        if (!demoData) return null;
+        return adaptDemoJsonToGlyphPayload(demoData);
+    }, [demoData]);
+
     const trajectoryData =
         trajectoryDataProp ??
-        (isClimatePreset
-            ? CLIMATE_GLYPH_TRAJECTORY_DATA
-            : DEFAULT_GLYPH_TRAJECTORY_DATA);
+        adaptedDemoData?.trajectoryPayload ??
+        null;
     const activeSeriesData =
         seriesDataProp ??
         expressionData ??
-        (isClimatePreset ? CLIMATE_GLYPH_SERIES : DEFAULT_GLYPH_SERIES);
+        adaptedDemoData?.seriesByTrajectory ??
+        null;
 
     const containerRef = useRef(null);
     const svgRef = useRef(null);

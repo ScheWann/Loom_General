@@ -1,4 +1,8 @@
 import { GeneralTrajectoryGlyph } from "./GeneralTrajectoryGlyph.jsx";
+import demoDataA from "./data/contrails2MaxClusterGlyph.json";
+import demoDataB from "./data/climateGlyph.json";
+
+const glyphDatasets = [demoDataA, demoDataB];
 
 function App() {
   return (
@@ -22,41 +26,25 @@ function App() {
           boxSizing: "border-box",
         }}
       >
-        {/* Left panel - Contrails */}
-        <div
-          style={{
-            width: "min(90vmin, 560px)",
-            height: "min(90vmin, 560px)",
-            maxWidth: "100%",
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <GeneralTrajectoryGlyph 
-            preset="contrails2MaxCluster"
-            title="Contrails"
-          />
-        </div>
-
-        {/* Right panel - Climate */}
-        <div
-          style={{
-            width: "min(90vmin, 560px)",
-            height: "min(90vmin, 560px)",
-            maxWidth: "100%",
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <GeneralTrajectoryGlyph
-            preset="climate2014_2024"
-            title="Climate 2014-2024"
-          />
-        </div>
+        {glyphDatasets.map((demoData, index) => (
+          <div
+            key={`${demoData?.paths?.[0]?.label || "dataset"}-${index}`}
+            style={{
+              width: "min(90vmin, 560px)",
+              height: "min(90vmin, 560px)",
+              maxWidth: "100%",
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <GeneralTrajectoryGlyph
+              demoData={demoData}
+              title={demoData?.paths?.[0]?.label || `Dataset ${index + 1}`}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );
