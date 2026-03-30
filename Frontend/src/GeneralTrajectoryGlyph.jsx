@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import * as d3 from "d3";
 import { COLOR_BREWER2_PALETTE } from "./Utils";
-import fakeGeneralGlyphDemo from "./data/contrails2MaxClusterGlyph.json";
+import defaultGlyphDemo from "./data/contrails2MaxClusterGlyph.json";
+import climateGlyphDemo from "./data/climateGlyph.json";
 
 const COLORS = COLOR_BREWER2_PALETTE;
 
@@ -16,7 +17,7 @@ const COLORS = COLOR_BREWER2_PALETTE;
  *   metric (e.g. raw in−out degree balance), not by cluster id. `nodes` are still used for labels/colors.
  * - Otherwise `axis_order` lists cluster ids and the legacy cluster-spoke layout is used.
  */
-function adaptDemoJsonToGlyphPayload(demo) {
+export function adaptDemoJsonToGlyphPayload(demo) {
     const trajectoryPayload = {
         trajectory_objects: demo.paths.map((p) => ({
             name: p.label,
@@ -31,8 +32,8 @@ function adaptDemoJsonToGlyphPayload(demo) {
     };
     const seriesByTrajectory = demo.series_by_path.map((row) => ({
         trajectory_id: row.path_index,
-        gene_expression_data: row.series.map((s) => ({
-            gene: s.id,
+        series_data: row.series.map((s) => ({
+            id: s.id,
             timePoints: s.times,
             expressions: s.values,
         })),
@@ -40,41 +41,69 @@ function adaptDemoJsonToGlyphPayload(demo) {
     return { trajectoryPayload, seriesByTrajectory };
 }
 
-const { trajectoryPayload: _demoTrajectory, seriesByTrajectory: _demoSeries } =
-    adaptDemoJsonToGlyphPayload(fakeGeneralGlyphDemo);
+function resolveTrajectoryIndex(trajectoryId) {
+    if (typeof trajectoryId === "string") {
+        const parts = trajectoryId.split("_");
+        const tail = Number.parseInt(parts[parts.length - 1], 10);
+        if (!Number.isNaN(tail)) return tail;
+        return Number.parseInt(trajectoryId, 10);
+    }
+    return Number(trajectoryId);
+}
 
-/** Demo paths + axis order. */
-export const FAKE_GENERAL_GLYPH_TRAJECTORY_DATA = _demoTrajectory;
+const {
+    trajectoryPayload: _defaultTrajectory,
+    seriesByTrajectory: _defaultSeries,
+} = adaptDemoJsonToGlyphPayload(defaultGlyphDemo);
 
-/** Demo series per path. */
-export const FAKE_GENERAL_GLYPH_GENES = _demoSeries;
+/** Default demo paths + axis order. */
+export const DEFAULT_GLYPH_TRAJECTORY_DATA = _defaultTrajectory;
 
-export const FAKE_GENERAL_GLYPH_CLUSTER_COLORS = {
-    0: "#8DD3C7",
-    1: "#FFFFB3",
-    2: "#FB8072",
-    3: "#80B1D3",
-};
+/** Default demo series per path. */
+export const DEFAULT_GLYPH_SERIES = _defaultSeries;
 
-/**
- * Radial glyph: upper semicircle = series (value vs time), lower semicircle = paths on category axes.
- */
+const {
+    trajectoryPayload: _climateTrajectory,
+    seriesByTrajectory: _climateSeries,
+} = adaptDemoJsonToGlyphPayload(climateGlyphDemo);
+
+/** Climate paths + axis order. */
+export const CLIMATE_GLYPH_TRAJECTORY_DATA = _climateTrajectory;
+
+/** Climate series per path. */
+export const CLIMATE_GLYPH_SERIES = _climateSeries;
+
+
 export const GeneralTrajectoryGlyph = ({
     title = null,
-    trajectoryData = FAKE_GENERAL_GLYPH_TRAJECTORY_DATA,
-    geneExpressionData = FAKE_GENERAL_GLYPH_GENES,
-    clusterColors = FAKE_GENERAL_GLYPH_CLUSTER_COLORS,
+    preset = "default",
+    trajectoryData: trajectoryDataProp,
+    seriesData: seriesDataProp,
+    expressionData,
     selectedTrajectory: selectedTrajectoryProp,
     onTrajectoryChange,
     className,
     style,
 }) => {
+    const isClimatePreset = preset === "climate2014_2024";
+    const trajectoryData =
+        trajectoryDataProp ??
+        (isClimatePreset
+            ? CLIMATE_GLYPH_TRAJECTORY_DATA
+            : DEFAULT_GLYPH_TRAJECTORY_DATA);
+    const activeSeriesData =
+        seriesDataProp ??
+        expressionData ??
+        (isClimatePreset ? CLIMATE_GLYPH_SERIES : DEFAULT_GLYPH_SERIES);
+
     const containerRef = useRef(null);
     const svgRef = useRef(null);
     const [dimensions, setDimensions] = useState({ width: 400, height: 400 });
     const [internalTrajectory, setInternalTrajectory] = useState(0);
     const selectedTrajectory =
-        selectedTrajectoryProp !== undefined ? selectedTrajectoryProp : internalTrajectory;
+        selectedTrajectoryProp !== undefined
+            ? selectedTrajectoryProp
+            : internalTrajectory;
     const setSelectedTrajectory = (index) => {
         if (selectedTrajectoryProp === undefined) {
             setInternalTrajectory(index);
@@ -85,7 +114,10 @@ export const GeneralTrajectoryGlyph = ({
     useEffect(() => {
         if (!trajectoryData) return;
         let trajectoryCount = 0;
-        if (trajectoryData.trajectory_objects && Array.isArray(trajectoryData.trajectory_objects)) {
+        if (
+            trajectoryData.trajectory_objects &&
+            Array.isArray(trajectoryData.trajectory_objects)
+        ) {
             trajectoryCount = trajectoryData.trajectory_objects.length;
         }
         if (trajectoryCount > 0 && selectedTrajectory >= trajectoryCount) {
@@ -93,29 +125,20 @@ export const GeneralTrajectoryGlyph = ({
         }
     }, [trajectoryData, selectedTrajectory]);
 
-    const [componentId] = useState(() => `general-glyph-${Math.random().toString(36).slice(2, 11)}`);
+    const [componentId] = useState(
+        () => `general-glyph-${Math.random().toString(36).slice(2, 11)}`,
+    );
 
-    const selectedGeneData = useMemo(() => {
-        if (!geneExpressionData || !Array.isArray(geneExpressionData)) {
+    const selectedSeriesData = useMemo(() => {
+        if (!activeSeriesData || !Array.isArray(activeSeriesData)) {
             return null;
         }
-        const selectedData = geneExpressionData.find((data) => {
-            const dataTrajectoryId = data.trajectory_id;
-            if (typeof dataTrajectoryId === "string") {
-                if (dataTrajectoryId.includes("_")) {
-                    const parts = dataTrajectoryId.split("_");
-                    const trajectoryIndexPart = parseInt(parts[parts.length - 1], 10);
-                    return trajectoryIndexPart === selectedTrajectory;
-                }
-                return parseInt(dataTrajectoryId, 10) === selectedTrajectory;
-            }
-            return dataTrajectoryId === selectedTrajectory;
-        });
-        if (selectedData) {
-            return selectedData.gene_expression_data;
-        }
-        return null;
-    }, [geneExpressionData, selectedTrajectory]);
+        const matchedSeries = activeSeriesData.find(
+            (data) =>
+                resolveTrajectoryIndex(data.trajectory_id) === selectedTrajectory,
+        );
+        return matchedSeries?.series_data ?? null;
+    }, [activeSeriesData, selectedTrajectory]);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -159,10 +182,9 @@ export const GeneralTrajectoryGlyph = ({
     }, [
         trajectoryData,
         dimensions,
-        geneExpressionData,
-        clusterColors,
+        activeSeriesData,
         selectedTrajectory,
-        selectedGeneData,
+        selectedSeriesData,
         title,
     ]);
 
@@ -200,8 +222,7 @@ export const GeneralTrajectoryGlyph = ({
             left = 10;
         }
 
-        tooltip.style("left", left + "px")
-            .style("top", top + "px");
+        tooltip.style("left", left + "px").style("top", top + "px");
     };
 
     const createGlyph = (dataToUse) => {
@@ -215,7 +236,11 @@ export const GeneralTrajectoryGlyph = ({
 
         // Check if we have valid data in either structure
         let hasValidData = false;
-        if (dataToUse.trajectory_objects && Array.isArray(dataToUse.trajectory_objects) && dataToUse.trajectory_objects.length > 0) {
+        if (
+            dataToUse.trajectory_objects &&
+            Array.isArray(dataToUse.trajectory_objects) &&
+            dataToUse.trajectory_objects.length > 0
+        ) {
             hasValidData = true;
         } else if (Array.isArray(dataToUse) && dataToUse.length > 0) {
             hasValidData = true;
@@ -233,12 +258,14 @@ export const GeneralTrajectoryGlyph = ({
         const centerY = innerHeight / 2;
 
         // Create main group
-        const g = svg.append("g")
+        const g = svg
+            .append("g")
             .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
         // Create tooltip (remove existing ones first to avoid duplicates)
         d3.select("body").selectAll(`.glyph-tooltip-${componentId}`).remove();
-        const tooltip = d3.select("body")
+        const tooltip = d3
+            .select("body")
             .append("div")
             .attr("class", `glyph-tooltip-${componentId}`)
             .style("position", "fixed")
@@ -254,7 +281,7 @@ export const GeneralTrajectoryGlyph = ({
             .style("box-shadow", "0 4px 8px rgba(0,0,0,0.3)")
             .style("border", "1px solid rgba(255,255,255,0.2)");
 
-        // Draw horizontal dividing line between gene expression (top) and cell trajectories (bottom)
+        // Draw horizontal dividing line between series (top) and cell trajectories (bottom)
         const axisLength = Math.min(innerWidth, innerHeight) * 0.98;
         g.append("line")
             .attr("x1", centerX - axisLength / 2)
@@ -272,21 +299,25 @@ export const GeneralTrajectoryGlyph = ({
             clusterOrder = dataToUse.cluster_order;
         } else {
             // Invalid structure
-            console.warn('Invalid trajectory data structure:', dataToUse);
+            console.warn("Invalid trajectory data structure:", dataToUse);
             return;
         }
 
         const lowerAxisTicks = dataToUse.lower_axis_ticks ?? clusterOrder;
 
-        const maxTime = Math.max(...trajectories.flatMap(traj => {
-            const pathTimes = traj.times || [];
-            return pathTimes.map(pt => parseFloat(pt));
-        }));
+        const maxTime = Math.max(
+            ...trajectories.flatMap((traj) => {
+                const pathTimes = traj.times || [];
+                return pathTimes.map((pt) => parseFloat(pt));
+            }),
+        );
 
-        const minTime = Math.min(...trajectories.flatMap(traj => {
-            const pathTimes = traj.times || [];
-            return pathTimes.map(pt => parseFloat(pt));
-        }));
+        const minTime = Math.min(
+            ...trajectories.flatMap((traj) => {
+                const pathTimes = traj.times || [];
+                return pathTimes.map((pt) => parseFloat(pt));
+            }),
+        );
 
         const timeSpan = Math.max(maxTime - minTime, 0);
         /** Enough fractional digits so nearby times (e.g. 0.1–0.2) do not all round to the same label. */
@@ -296,42 +327,12 @@ export const GeneralTrajectoryGlyph = ({
             return t.toFixed(decimals);
         };
 
-        // Color scale: unique cluster ids along paths (not lower-axis tick values)
-        const allClusters = [
-            ...new Set(
-                trajectories.flatMap((traj) => (traj.path || []).map((c) => String(c)))
-            ),
-        ];
-
         // Create structured data object for bottom section
         const structuredData = {
             trajectory_objects: trajectories,
             cluster_order: clusterOrder,
             lower_axis_ticks: lowerAxisTicks,
         };
-
-        // Use supplied category colors when provided, otherwise default palette
-        let clusterColorScale;
-        if (clusterColors) {
-            // Build ordinal scale from the color map
-            // Handle both full cluster names and numeric keys
-            const colorRange = allClusters.map(cluster => {
-                // Try the full cluster name first
-                if (clusterColors[cluster]) {
-                    return clusterColors[cluster];
-                }
-                // If not found, try extracting numeric part and use that as key
-                const clusterNumber = cluster.toString().replace(/\D/g, '');
-                return clusterColors[clusterNumber] || "#999";
-            });
-            clusterColorScale = d3.scaleOrdinal()
-                .domain(allClusters)
-                .range(colorRange);
-        } else {
-            // Fallback to default color scheme
-            clusterColorScale = d3.scaleOrdinal(COLORS)
-                .domain(allClusters);
-        }
 
         // Add time point 0 circle at center
         g.append("circle")
@@ -354,14 +355,36 @@ export const GeneralTrajectoryGlyph = ({
             .text(`t${formatTimeLabel(minTime)}`);
 
         // Create bottom section - macroscopic cell trajectories
-        createBottomSection(g, structuredData, centerX, centerY, axisLength, maxTime, minTime, clusterColorScale, tooltip, selectedTrajectory, setSelectedTrajectory);
+        createBottomSection(
+            g,
+            structuredData,
+            centerX,
+            centerY,
+            axisLength,
+            maxTime,
+            minTime,
+            tooltip,
+            selectedTrajectory,
+            setSelectedTrajectory,
+        );
 
-        // Create top section - gene expression gauge
-        createTopSection(g, selectedGeneData, centerX, centerY, axisLength, maxTime, minTime, tooltip, selectedTrajectory, formatTimeLabel);
+        // Create top section - series gauge
+        createTopSection(
+            g,
+            selectedSeriesData,
+            centerX,
+            centerY,
+            axisLength,
+            maxTime,
+            minTime,
+            tooltip,
+            formatTimeLabel,
+        );
 
         // Optional bottom title
         if (title) {
-            svg.append("text")
+            svg
+                .append("text")
                 .attr("x", width / 2)
                 .attr("y", height - 5)
                 .attr("text-anchor", "middle")
@@ -372,18 +395,31 @@ export const GeneralTrajectoryGlyph = ({
         }
     };
 
-    const createBottomSection = (g, trajectoryDataStructure, centerX, centerY, axisLength, maxTime, minTime, clusterColorScale, tooltip, selectedTrajectory, setSelectedTrajectory) => {
+    const createBottomSection = (
+        g,
+        trajectoryDataStructure,
+        centerX,
+        centerY,
+        axisLength,
+        maxTime,
+        minTime,
+        tooltip,
+        selectedTrajectory,
+        setSelectedTrajectory,
+    ) => {
         const bottomSection = g.append("g").attr("class", "bottom-section");
         const maxRadius = axisLength / 2 - 15;
 
         // Draw light brown background for the lower semicircle (soil-like color)
-        const arc = d3.arc()
+        const arc = d3
+            .arc()
             .innerRadius(0)
             .outerRadius(maxRadius)
             .startAngle(Math.PI / 2)
             .endAngle(Math.PI * 1.5);
 
-        bottomSection.append("path")
+        bottomSection
+            .append("path")
             .attr("d", arc)
             .attr("transform", `translate(${centerX}, ${centerY})`)
             .attr("fill", "#D2B48C")
@@ -405,7 +441,8 @@ export const GeneralTrajectoryGlyph = ({
             const hi = pairs[pairs.length - 1].t;
             const clamped = Math.max(lo, Math.min(hi, vnum));
             if (clamped <= pairs[0].t) return pairs[0].a;
-            if (clamped >= pairs[pairs.length - 1].t) return pairs[pairs.length - 1].a;
+            if (clamped >= pairs[pairs.length - 1].t)
+                return pairs[pairs.length - 1].a;
             for (let i = 0; i < pairs.length - 1; i++) {
                 const p0 = pairs[i];
                 const p1 = pairs[i + 1];
@@ -417,8 +454,11 @@ export const GeneralTrajectoryGlyph = ({
             return pairs[0].a;
         };
 
-        const trajectoriesAll = trajectoryDataStructure.trajectory_objects || trajectoryDataStructure;
-        const firstTraj = Array.isArray(trajectoriesAll) ? trajectoriesAll[0] : null;
+        const trajectoriesAll =
+            trajectoryDataStructure.trajectory_objects || trajectoryDataStructure;
+        const firstTraj = Array.isArray(trajectoriesAll)
+            ? trajectoriesAll[0]
+            : null;
         const useMetricLower =
             firstTraj?.lower_values &&
             Array.isArray(firstTraj.lower_values) &&
@@ -428,23 +468,30 @@ export const GeneralTrajectoryGlyph = ({
         let sortedClusters;
         let lowerTicks = null;
         if (useMetricLower) {
-            lowerTicks = (trajectoryDataStructure.lower_axis_ticks || trajectoryDataStructure.cluster_order || []).map(
-                parseAxisNum
-            );
+            lowerTicks = (
+                trajectoryDataStructure.lower_axis_ticks ||
+                trajectoryDataStructure.cluster_order ||
+                []
+            ).map(parseAxisNum);
             sortedClusters = lowerTicks;
         } else {
-            if (trajectoryDataStructure.cluster_order && Array.isArray(trajectoryDataStructure.cluster_order)) {
+            if (
+                trajectoryDataStructure.cluster_order &&
+                Array.isArray(trajectoryDataStructure.cluster_order)
+            ) {
                 sortedClusters = trajectoryDataStructure.cluster_order.map((cluster) =>
-                    typeof cluster === "number" ? cluster : parseInt(String(cluster), 10)
+                    typeof cluster === "number" ? cluster : parseInt(String(cluster), 10),
                 );
             }
             const idsOnPaths = new Set();
-            (Array.isArray(trajectoriesAll) ? trajectoriesAll : []).forEach((traj) => {
-                (traj.path || []).forEach((c) => {
-                    const id = typeof c === "number" ? c : parseInt(String(c), 10);
-                    if (Number.isFinite(id)) idsOnPaths.add(id);
-                });
-            });
+            (Array.isArray(trajectoriesAll) ? trajectoriesAll : []).forEach(
+                (traj) => {
+                    (traj.path || []).forEach((c) => {
+                        const id = typeof c === "number" ? c : parseInt(String(c), 10);
+                        if (Number.isFinite(id)) idsOnPaths.add(id);
+                    });
+                },
+            );
             const orderSet = new Set(sortedClusters || []);
             const missingOnAxis = [...idsOnPaths].filter((id) => !orderSet.has(id));
             if (missingOnAxis.length > 0 || !sortedClusters?.length) {
@@ -455,14 +502,15 @@ export const GeneralTrajectoryGlyph = ({
         const numLines = sortedClusters.length;
 
         // Time → radius (shared by trajectory polyline and dashed concentric guides)
-        const radiusScale = d3.scaleLinear()
+        const radiusScale = d3
+            .scaleLinear()
             .domain([minTime, maxTime])
             .range([8, maxRadius]);
 
         const step = Math.PI / Math.max(numLines, 1);
         const angles = [];
         for (let i = 0; i < numLines; i++) {
-            angles.push(step / 2.0 + (i * step));
+            angles.push(step / 2.0 + i * step);
         }
 
         const clusterToAngle = new Map();
@@ -477,7 +525,8 @@ export const GeneralTrajectoryGlyph = ({
             const x = maxRadius * Math.cos(angle);
             const y = maxRadius * Math.sin(angle);
 
-            bottomSection.append("line")
+            bottomSection
+                .append("line")
                 .attr("x1", centerX)
                 .attr("y1", centerY)
                 .attr("x2", centerX + x)
@@ -486,7 +535,8 @@ export const GeneralTrajectoryGlyph = ({
                 .attr("stroke-width", 1)
                 .attr("opacity", 0.6);
 
-            bottomSection.append("text")
+            bottomSection
+                .append("text")
                 .attr("x", centerX + x * 1.1)
                 .attr("y", centerY + y * 1.1)
                 .attr("text-anchor", "middle")
@@ -500,17 +550,20 @@ export const GeneralTrajectoryGlyph = ({
         const timeSpanBottom = Math.max(maxTime - minTime, 0);
         const timeScaleFractions = [0.25, 0.5, 0.75, 1.0];
         timeScaleFractions.forEach((fraction) => {
-            const timeValue = timeSpanBottom > 0 ? minTime + fraction * timeSpanBottom : minTime;
+            const timeValue =
+                timeSpanBottom > 0 ? minTime + fraction * timeSpanBottom : minTime;
             const radius = radiusScale(timeValue);
 
             // Draw semicircle arc for time indication (bottom half)
-            const timeArc = d3.arc()
+            const timeArc = d3
+                .arc()
                 .innerRadius(radius)
                 .outerRadius(radius)
-                .startAngle(0)           // Start from right (0 radians)
-                .endAngle(Math.PI);      // End at left (π radians)
+                .startAngle(0) // Start from right (0 radians)
+                .endAngle(Math.PI); // End at left (π radians)
 
-            bottomSection.append("path")
+            bottomSection
+                .append("path")
                 .attr("d", timeArc)
                 .attr("transform", `translate(${centerX}, ${centerY})`)
                 .attr("fill", "none")
@@ -524,12 +577,14 @@ export const GeneralTrajectoryGlyph = ({
         const trajectoryColors = COLORS;
 
         // Draw each trajectory
-        const trajectories = trajectoryDataStructure.trajectory_objects || trajectoryDataStructure;
+        const trajectories =
+            trajectoryDataStructure.trajectory_objects || trajectoryDataStructure;
         trajectories.forEach((trajectory, trajIndex) => {
             const { path } = trajectory;
             const pathTimes = trajectory.times || [];
             const lowerVals = trajectory.lower_values;
-            const trajectoryColor = trajectoryColors[trajIndex % trajectoryColors.length];
+            const trajectoryColor =
+                trajectoryColors[trajIndex % trajectoryColors.length];
 
             const trajMetric =
                 useMetricLower &&
@@ -546,7 +601,11 @@ export const GeneralTrajectoryGlyph = ({
                 const timeAtNode = parseFloat(pathTimes[i]);
                 let angle;
                 if (trajMetric) {
-                    angle = valueToAngleForMetric(lowerVals[i], lowerTicks ?? sortedClusters, angles);
+                    angle = valueToAngleForMetric(
+                        lowerVals[i],
+                        lowerTicks ?? sortedClusters,
+                        angles,
+                    );
                 } else {
                     angle = clusterToAngle.get(Number(cluster));
                 }
@@ -581,20 +640,22 @@ export const GeneralTrajectoryGlyph = ({
                     for (let j = 0; j <= numPoints; j++) {
                         const t = j / numPoints;
                         const interpTime = current.time + t * (next.time - current.time);
-                        const interpAngle = current.angle + t * (next.angle - current.angle);
+                        const interpAngle =
+                            current.angle + t * (next.angle - current.angle);
                         const interpRadius = radiusScale(interpTime);
 
                         pathData.push({
                             x: centerX + interpRadius * Math.cos(interpAngle),
-                            y: centerY + interpRadius * Math.sin(interpAngle)
+                            y: centerY + interpRadius * Math.sin(interpAngle),
                         });
                     }
                 }
 
                 // Linear curve: cardinal splines were rounding corners so cluster-to-cluster bends disappeared
-                const line = d3.line()
-                    .x(d => d.x)
-                    .y(d => d.y)
+                const line = d3
+                    .line()
+                    .x((d) => d.x)
+                    .y((d) => d.y)
                     .curve(d3.curveLinear);
 
                 const isSelected = trajIndex === selectedTrajectory;
@@ -604,7 +665,8 @@ export const GeneralTrajectoryGlyph = ({
                 // Apply grey color to non-selected trajectories
                 const finalColor = isSelected ? trajectoryColor : "#CCCCCC";
 
-                bottomSection.append("path")
+                bottomSection
+                    .append("path")
                     .datum(pathData)
                     .attr("class", `trajectory-path trajectory-path-${trajIndex}`)
                     .attr("d", line)
@@ -650,63 +712,38 @@ export const GeneralTrajectoryGlyph = ({
             trajectoryPoints.forEach((point, pointIndex) => {
                 const isEndpoint = pointIndex === trajectoryPoints.length - 1;
                 const isSelected = trajIndex === selectedTrajectory;
-
-                // Get the correct cluster color, handling different cluster ID formats
-                let clusterColor = "#999"; // fallback color
-                if (clusterColors) {
-                    // Try different formats for the cluster ID
-                    const clusterId = point.cluster;
-                    const clusterStr = clusterId.toString();
-
-                    // Try the numeric cluster ID first
-                    if (clusterColors[clusterId]) {
-                        clusterColor = clusterColors[clusterId];
-                    }
-                    // Try the string version
-                    else if (clusterColors[clusterStr]) {
-                        clusterColor = clusterColors[clusterStr];
-                    }
-                    // Try with "Cluster " prefix
-                    else if (clusterColors[`Cluster ${clusterId}`]) {
-                        clusterColor = clusterColors[`Cluster ${clusterId}`];
-                    }
-                    // Try extracting numeric part if it's a string
-                    else {
-                        const numericPart = clusterStr.replace(/\D/g, '');
-                        if (clusterColors[numericPart]) {
-                            clusterColor = clusterColors[numericPart];
-                        }
-                    }
-                } else {
-                    // Fallback to the color scale if no clusterColors provided
-                    clusterColor = clusterColorScale(point.cluster);
-                }
-
-                // Use grey color for non-selected trajectories' nodes
-                const nodeColor = isSelected ? clusterColor : "#CCCCCC";
-                const originalNodeColor = clusterColor;
+                const nodeColor = isSelected ? "#666666" : "#CCCCCC";
 
                 if (isEndpoint) {
                     // Draw star for endpoints
-                    const starElement = drawStar(bottomSection, point.x, point.y, 6, nodeColor, isSelected ? 0.9 : 0.6, `trajectory-node-${trajIndex}`);
+                    const starElement = drawStar(
+                        bottomSection,
+                        point.x,
+                        point.y,
+                        6,
+                        nodeColor,
+                        isSelected ? 0.9 : 0.6,
+                        `trajectory-node-${trajIndex}`,
+                    );
 
                     // Add data attribute for cluster information to help with legend hover
-                    starElement.attr('data-cluster', point.cluster);
+                    starElement.attr("data-cluster", point.cluster);
 
                     // Add hover effects for stars
                     if (!isSelected) {
                         starElement
                             .style("cursor", "pointer")
                             .on("mouseover", function (event) {
-                                tooltip.style("visibility", "visible")
+                                tooltip
+                                    .style("visibility", "visible")
                                     .html(
-                                        `<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}${point.lowerMetric !== undefined ? `<br/>in−out: ${point.lowerMetric}` : ""}<br/>Trajectory: ${trajIndex + 1}`
+                                        `<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}${point.lowerMetric !== undefined ? `<br/>in−out: ${point.lowerMetric}` : ""}<br/>Trajectory: ${trajIndex + 1}`,
                                     );
                                 positionTooltip(event, tooltip);
 
-                                // Restore original color on hover
+                                // Emphasize hovered point without cluster-based color coding
                                 d3.select(this)
-                                    .attr("fill", originalNodeColor)
+                                    .attr("fill", "#666666")
                                     .attr("opacity", 1);
                             })
                             .on("mousemove", function (event) {
@@ -716,18 +753,17 @@ export const GeneralTrajectoryGlyph = ({
                                 tooltip.style("visibility", "hidden");
 
                                 // Restore grey color
-                                d3.select(this)
-                                    .attr("fill", "#CCCCCC")
-                                    .attr("opacity", 0.2);
+                                d3.select(this).attr("fill", "#CCCCCC").attr("opacity", 0.2);
                             });
                     } else {
                         // Add tooltip for selected trajectory stars
                         starElement
                             .style("cursor", "pointer")
                             .on("mouseover", function (event) {
-                                tooltip.style("visibility", "visible")
+                                tooltip
+                                    .style("visibility", "visible")
                                     .html(
-                                        `<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}${point.lowerMetric !== undefined ? `<br/>in−out: ${point.lowerMetric}` : ""}<br/>Trajectory: ${trajIndex + 1}`
+                                        `<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}${point.lowerMetric !== undefined ? `<br/>in−out: ${point.lowerMetric}` : ""}<br/>Trajectory: ${trajIndex + 1}`,
                                     );
                                 positionTooltip(event, tooltip);
                             })
@@ -740,7 +776,8 @@ export const GeneralTrajectoryGlyph = ({
                     }
                 } else {
                     // Draw circle for intermediate points
-                    bottomSection.append("circle")
+                    bottomSection
+                        .append("circle")
                         .attr("class", `trajectory-node-${trajIndex}`)
                         .attr("data-cluster", point.cluster) // Add data attribute for cluster information
                         .attr("cx", point.x)
@@ -752,16 +789,17 @@ export const GeneralTrajectoryGlyph = ({
                         .attr("opacity", isSelected ? 1 : 0.2)
                         .style("cursor", "pointer")
                         .on("mouseover", function (event) {
-                            tooltip.style("visibility", "visible")
+                            tooltip
+                                .style("visibility", "visible")
                                 .html(
-                                        `<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}${point.lowerMetric !== undefined ? `<br/>in−out: ${point.lowerMetric}` : ""}<br/>Trajectory: ${trajIndex + 1}`
-                                    );
+                                    `<strong>Cluster ${point.cluster}</strong><br/>Time: ${point.time.toFixed(3)}${point.lowerMetric !== undefined ? `<br/>in−out: ${point.lowerMetric}` : ""}<br/>Trajectory: ${trajIndex + 1}`,
+                                );
                             positionTooltip(event, tooltip);
 
                             // Restore original color on hover for non-selected trajectories
                             if (!isSelected) {
                                 d3.select(this)
-                                    .attr("fill", originalNodeColor)
+                                    .attr("fill", "#666666")
                                     .attr("opacity", 1);
                             }
                         })
@@ -773,9 +811,7 @@ export const GeneralTrajectoryGlyph = ({
 
                             // Restore grey color for non-selected trajectories
                             if (!isSelected) {
-                                d3.select(this)
-                                    .attr("fill", "#CCCCCC")
-                                    .attr("opacity", 0.2);
+                                d3.select(this).attr("fill", "#CCCCCC").attr("opacity", 0.2);
                             }
                         });
                 }
@@ -783,18 +819,30 @@ export const GeneralTrajectoryGlyph = ({
         });
     };
 
-    const createTopSection = (g, geneData, centerX, centerY, axisLength, maxTime, minTime, tooltip, selectedTrajectory, formatTimeLabel) => {
+    const createTopSection = (
+        g,
+        seriesData,
+        centerX,
+        centerY,
+        axisLength,
+        maxTime,
+        minTime,
+        tooltip,
+        formatTimeLabel,
+    ) => {
         const maxRadius = axisLength / 2 - 15;
         const topSection = g.append("g").attr("class", "top-section");
 
         // Left arc for Low Expression (red)
-        const lowExprArc = d3.arc()
+        const lowExprArc = d3
+            .arc()
             .innerRadius(8)
             .outerRadius(maxRadius)
             .startAngle(Math.PI * 1.5)
             .endAngle(Math.PI * 1.6);
 
-        topSection.append("path")
+        topSection
+            .append("path")
             .attr("d", lowExprArc)
             .attr("transform", `translate(${centerX}, ${centerY})`)
             .attr("fill", "red")
@@ -802,13 +850,15 @@ export const GeneralTrajectoryGlyph = ({
             .attr("stroke", "none");
 
         // Right arc for High Expression (green)
-        const highExprArc = d3.arc()
+        const highExprArc = d3
+            .arc()
             .innerRadius(8)
             .outerRadius(maxRadius)
             .startAngle(Math.PI * 2.4)
             .endAngle(Math.PI * 2.5);
 
-        topSection.append("path")
+        topSection
+            .append("path")
             .attr("d", highExprArc)
             .attr("transform", `translate(${centerX}, ${centerY})`)
             .attr("fill", "green")
@@ -820,13 +870,15 @@ export const GeneralTrajectoryGlyph = ({
         const trajectoryTimeRange = Math.max(maxTime - minTime, 0);
         const safeRange = trajectoryTimeRange > 0 ? trajectoryTimeRange : 1e-9;
         const numTimeCircles = 4;
-        const labelTime = (t) => (formatTimeLabel ? formatTimeLabel(t) : t.toFixed(2));
+        const labelTime = (t) =>
+            formatTimeLabel ? formatTimeLabel(t) : t.toFixed(2);
         for (let i = 1; i <= numTimeCircles; i++) {
             const time = minTime + (i / numTimeCircles) * trajectoryTimeRange;
             const radius = 8 + ((time - minTime) / safeRange) * (maxRadius - 8);
 
             // Draw complete circles
-            topSection.append("circle")
+            topSection
+                .append("circle")
                 .attr("cx", centerX)
                 .attr("cy", centerY)
                 .attr("r", radius)
@@ -836,7 +888,8 @@ export const GeneralTrajectoryGlyph = ({
                 .attr("opacity", 0.2);
 
             // Add time labels at the top of each circle
-            topSection.append("text")
+            topSection
+                .append("text")
                 .attr("x", centerX)
                 .attr("y", centerY - radius - 5)
                 .attr("text-anchor", "middle")
@@ -846,7 +899,8 @@ export const GeneralTrajectoryGlyph = ({
         }
 
         // Add expression level indicators for upper semicircle (always show these)
-        topSection.append("text")
+        topSection
+            .append("text")
             .attr("x", centerX - maxRadius * 0.7)
             .attr("y", centerY - 5)
             .attr("text-anchor", "middle")
@@ -854,7 +908,8 @@ export const GeneralTrajectoryGlyph = ({
             .attr("fill", "#666")
             .text("Low");
 
-        topSection.append("text")
+        topSection
+            .append("text")
             .attr("x", centerX + maxRadius * 0.7)
             .attr("y", centerY - 5)
             .attr("text-anchor", "middle")
@@ -862,50 +917,52 @@ export const GeneralTrajectoryGlyph = ({
             .attr("fill", "#666")
             .text("High");
 
-        // Only proceed with gene expression specific elements if data is provided
-        if (!geneData || !Array.isArray(geneData) || geneData.length === 0) {
+        // Only proceed with series specific elements if data is provided
+        if (!seriesData || !Array.isArray(seriesData) || seriesData.length === 0) {
             return;
         }
 
         // in_minus_out belongs on the lower semicircle (lower_values), not as an upper series
-        const geneDataUpper = geneData.filter((g) => g.gene !== "in_minus_out");
-        if (geneDataUpper.length === 0) {
+        const seriesDataUpper = seriesData.filter((g) => g.id !== "in_minus_out");
+        if (seriesDataUpper.length === 0) {
             return;
         }
 
-        // Draw upper semicircle background for gene expression area
+        // Draw upper semicircle background for series area
         // Time point scale (radial distance represents time progression)
         // Use the same scaling as concentric circles and trajectory data
-        const timeScale = d3.scaleLinear()
+        const timeScale = d3
+            .scaleLinear()
             .domain([minTime, maxTime])
             .range([8, maxRadius]); // Start from time point 0 circle edge (radius 8)
 
         // Expression scale (angular position - higher expression = more to the right)
         // Upper half only: from left (π) to right (2π) of the upper semicircle
-        const expressionScale = d3.scaleLinear()
+        const expressionScale = d3
+            .scaleLinear()
             .domain([0, 1])
             .range([Math.PI, 2 * Math.PI]); // From left side (180°) to right side (360°) through upper half
 
-        // Gene colors using custom color scheme
-        const geneColors = COLORS;
+        // Series colors using custom color scheme
+        const seriesColors = COLORS;
 
-        geneDataUpper.forEach((geneInfo, geneIndex) => {
-            const color = geneColors[geneIndex % geneColors.length];
+        seriesDataUpper.forEach((seriesInfo, seriesIndex) => {
+            const color = seriesColors[seriesIndex % seriesColors.length];
 
             // Create expression points where angular position is determined by expression level
-            const expressionPoints = geneInfo.timePoints.map((timePoint, i) => {
+            const expressionPoints = seriesInfo.timePoints.map((timePoint, i) => {
                 // Radius is determined by time point (progression outward)
                 const radius = timeScale(timePoint);
                 // Angle is determined by expression level (higher = more to the right)
-                const angle = expressionScale(geneInfo.expressions[i]);
+                const angle = expressionScale(seriesInfo.expressions[i]);
 
                 return {
                     x: centerX + Math.cos(angle) * radius,
                     y: centerY + Math.sin(angle) * radius,
                     timePoint: timePoint,
-                    expression: geneInfo.expressions[i],
+                    expression: seriesInfo.expressions[i],
                     angle: angle,
-                    radius: radius
+                    radius: radius,
                 };
             });
 
@@ -943,14 +1000,26 @@ export const GeneralTrajectoryGlyph = ({
                     const nextPoint = points[i];
 
                     // Radii for concentric bounds
-                    const rCurrent = Math.hypot(currentPoint.x - centerX, currentPoint.y - centerY);
-                    const rNext = Math.hypot(nextPoint.x - centerX, nextPoint.y - centerY);
+                    const rCurrent = Math.hypot(
+                        currentPoint.x - centerX,
+                        currentPoint.y - centerY,
+                    );
+                    const rNext = Math.hypot(
+                        nextPoint.x - centerX,
+                        nextPoint.y - centerY,
+                    );
                     const rMin = Math.min(rCurrent, rNext);
                     const rMax = Math.max(rCurrent, rNext);
 
                     // Angles, constrained to the upper half [π, 2π]
-                    const angCurrent = Math.atan2(currentPoint.y - centerY, currentPoint.x - centerX);
-                    const angNext = Math.atan2(nextPoint.y - centerY, nextPoint.x - centerX);
+                    const angCurrent = Math.atan2(
+                        currentPoint.y - centerY,
+                        currentPoint.x - centerX,
+                    );
+                    const angNext = Math.atan2(
+                        nextPoint.y - centerY,
+                        nextPoint.x - centerX,
+                    );
                     const { a0, a1 } = unwrapToShortestUpperHalf(angCurrent, angNext);
 
                     // Generate interpolated points that stay between rMin..rMax and in upper half
@@ -967,7 +1036,8 @@ export const GeneralTrajectoryGlyph = ({
                         // Interpolate radius with optional smooth bulge, then clamp to [rMin, rMax]
                         const rLinear = rCurrent + (rNext - rCurrent) * t;
                         const gap = rMax - rMin;
-                        const rBulge = rLinear + gap * settings.bulgeFactor * Math.sin(Math.PI * t);
+                        const rBulge =
+                            rLinear + gap * settings.bulgeFactor * Math.sin(Math.PI * t);
                         const r = Math.max(rMin, Math.min(rMax, rBulge));
 
                         const x = centerX + Math.cos(aNorm) * r;
@@ -988,34 +1058,32 @@ export const GeneralTrajectoryGlyph = ({
             // Add starting point from time 0 circle edge if first point is not at time 0
             if (expressionPoints.length > 0 && expressionPoints[0].radius > 8) {
                 const firstPoint = expressionPoints[0];
-                const angle = Math.atan2(firstPoint.y - centerY, firstPoint.x - centerX);
+                const angle = Math.atan2(
+                    firstPoint.y - centerY,
+                    firstPoint.x - centerX,
+                );
                 const startX = centerX + Math.cos(angle) * 8;
                 const startY = centerY + Math.sin(angle) * 8;
 
-                curvePoints = [
-                    { x: startX, y: startY },
-                    ...expressionPoints
-                ];
+                curvePoints = [{ x: startX, y: startY }, ...expressionPoints];
             }
 
-            // Calculate average expression for this gene (normalized between 0 and 1)
-            const avgExpression = geneInfo.expressions.reduce((a, b) => a + b, 0) / geneInfo.expressions.length;
+            // Calculate average expression for this series (normalized between 0 and 1)
+            const avgExpression =
+                seriesInfo.expressions.reduce((a, b) => a + b, 0) /
+                seriesInfo.expressions.length;
 
             // Draw custom curve through all points
             if (curvePoints.length > 1) {
                 // Configuration for curve behavior - can be customized based on needs
-                const curveOptions = {
-                    angularThreshold: Math.PI / 3,      // 60 degrees - when to use convex curves
-                    convexMultiplier: 1.3,              // How much to extend convex curves
-                    minConvexExtension: 25,             // Minimum extension for convex curves
-                    normalCurveMultiplier: 1.15,        // Normal curve extension
-                    useShortestPath: true               // Use shortest angular path
-                };
-
-                const customPath = generateCustomCurve(curvePoints, curveOptions);
+                const customPath = generateCustomCurve(curvePoints, {
+                    samplesPerSegment: 24,
+                    bulgeFactor: 0.18,
+                });
 
                 if (customPath) {
-                    const curvePath = topSection.append("path")
+                    const curvePath = topSection
+                        .append("path")
                         .attr("d", customPath)
                         .attr("stroke", color)
                         .attr("stroke-width", 3)
@@ -1031,8 +1099,9 @@ export const GeneralTrajectoryGlyph = ({
                     const avgEndX = centerX + Math.cos(avgAngle) * maxRadius;
                     const avgEndY = centerY + Math.sin(avgAngle) * maxRadius;
 
-                    const avgRadiusIndicator = topSection.append("line")
-                        .attr("class", `avg-expression-radius-${geneIndex}`)
+                    const avgRadiusIndicator = topSection
+                        .append("line")
+                        .attr("class", `avg-expression-radius-${seriesIndex}`)
                         .attr("x1", centerX)
                         .attr("y1", centerY)
                         .attr("x2", avgEndX)
@@ -1044,8 +1113,9 @@ export const GeneralTrajectoryGlyph = ({
                         .style("pointer-events", "none");
 
                     // Add a small circle at the end of the radius to make it more visible
-                    const avgRadiusEndPoint = topSection.append("circle")
-                        .attr("class", `avg-expression-endpoint-${geneIndex}`)
+                    const avgRadiusEndPoint = topSection
+                        .append("circle")
+                        .attr("class", `avg-expression-endpoint-${seriesIndex}`)
                         .attr("cx", avgEndX)
                         .attr("cy", avgEndY)
                         .attr("r", 3)
@@ -1057,44 +1127,35 @@ export const GeneralTrajectoryGlyph = ({
 
                     curvePath
                         .on("mouseover", function (event) {
-                            d3.select(this)
-                                .attr("stroke-width", 4)
-                                .attr("opacity", 1);
+                            d3.select(this).attr("stroke-width", 4).attr("opacity", 1);
 
                             // Show the average expression radius indicator
-                            avgRadiusIndicator
-                                .attr("opacity", 0.8);
-                            avgRadiusEndPoint
-                                .attr("opacity", 0.9);
+                            avgRadiusIndicator.attr("opacity", 0.8);
+                            avgRadiusEndPoint.attr("opacity", 0.9);
 
-                            const minExpression = Math.min(...geneInfo.expressions);
-                            const maxExpression = Math.max(...geneInfo.expressions);
+                            const minExpression = Math.min(...seriesInfo.expressions);
+                            const maxExpression = Math.max(...seriesInfo.expressions);
                             const avgExpressionFormatted = avgExpression.toFixed(2);
-                            const timeSpan = `${geneInfo.timePoints[0].toFixed(4)} - ${geneInfo.timePoints[geneInfo.timePoints.length - 1].toFixed(4)}`;
+                            const timeSpan = `${seriesInfo.timePoints[0].toFixed(4)} - ${seriesInfo.timePoints[seriesInfo.timePoints.length - 1].toFixed(4)}`;
 
-                            tooltip.style("visibility", "visible")
-                                .html(`
-                              <div><strong>Series: ${geneInfo.gene}</strong></div>
+                            tooltip.style("visibility", "visible").html(`
+                                <div><strong>Series: ${seriesInfo.id}</strong></div>
                                 <div>Time span: ${timeSpan}</div>
                                 <div>Value range: ${minExpression.toFixed(2)} - ${maxExpression.toFixed(2)}</div>
                                 <div>Mean value: ${avgExpressionFormatted}</div>
                                 <div style="font-style: italic; color: #ccc; font-size: 11px;">Dashed line shows mean value</div>
-                          `);
+                            `);
                             positionTooltip(event, tooltip);
                         })
                         .on("mousemove", function (event) {
                             positionTooltip(event, tooltip);
                         })
                         .on("mouseout", function () {
-                            d3.select(this)
-                                .attr("stroke-width", 3)
-                                .attr("opacity", 0.6);
+                            d3.select(this).attr("stroke-width", 3).attr("opacity", 0.6);
 
                             // Hide the average expression radius indicator
-                            avgRadiusIndicator
-                                .attr("opacity", 0);
-                            avgRadiusEndPoint
-                                .attr("opacity", 0);
+                            avgRadiusIndicator.attr("opacity", 0);
+                            avgRadiusEndPoint.attr("opacity", 0);
 
                             tooltip.style("visibility", "hidden");
                         });
@@ -1102,8 +1163,9 @@ export const GeneralTrajectoryGlyph = ({
             }
 
             // Draw all points
-            expressionPoints.forEach((point, i) => {
-                topSection.append("circle")
+            expressionPoints.forEach((point) => {
+                topSection
+                    .append("circle")
                     .attr("cx", point.x)
                     .attr("cy", point.y)
                     .attr("r", 3)
@@ -1112,21 +1174,20 @@ export const GeneralTrajectoryGlyph = ({
                     .attr("opacity", 0.6)
                     .style("cursor", "pointer")
                     .on("mouseover", function (event) {
-                        d3.select(this)
-                            .attr("r", 5)
-                            .attr("opacity", 1);
+                        d3.select(this).attr("r", 5).attr("opacity", 1);
 
                         // Show the average expression radius indicator
-                        topSection.select(`.avg-expression-radius-${geneIndex}`)
+                        topSection
+                            .select(`.avg-expression-radius-${seriesIndex}`)
                             .attr("opacity", 0.8);
-                        topSection.select(`.avg-expression-endpoint-${geneIndex}`)
+                        topSection
+                            .select(`.avg-expression-endpoint-${seriesIndex}`)
                             .attr("opacity", 0.9);
 
                         const avgExpressionFormatted = avgExpression.toFixed(2);
-                        tooltip.style("visibility", "visible")
-                            .html(`
+                        tooltip.style("visibility", "visible").html(`
                                 <div><strong>Point</strong></div>
-                                <div>Id: ${geneInfo.gene}</div>
+                    <div>Id: ${seriesInfo.id}</div>
                                 <div>Time: ${point.timePoint.toFixed(2)}</div>
                                 <div>Value: ${point.expression.toFixed(3)}</div>
                                 <div>Mean value: ${avgExpressionFormatted}</div>
@@ -1138,41 +1199,31 @@ export const GeneralTrajectoryGlyph = ({
                         positionTooltip(event, tooltip);
                     })
                     .on("mouseout", function () {
-                        d3.select(this)
-                            .attr("r", 3)
-                            .attr("opacity", 0.6);
+                        d3.select(this).attr("r", 3).attr("opacity", 0.6);
 
                         // Hide the average expression radius indicator
-                        topSection.select(`.avg-expression-radius-${geneIndex}`)
+                        topSection
+                            .select(`.avg-expression-radius-${seriesIndex}`)
                             .attr("opacity", 0);
-                        topSection.select(`.avg-expression-endpoint-${geneIndex}`)
+                        topSection
+                            .select(`.avg-expression-endpoint-${seriesIndex}`)
                             .attr("opacity", 0);
 
                         tooltip.style("visibility", "hidden");
                     });
             });
         });
-
-        // Add selected trajectory indicator if gene data is available
-        if (geneData && Array.isArray(geneData) && geneData.length > 0) {
-            const selectedData = geneData.find(data => {
-                const dataTrajectoryId = data.trajectory_id;
-                if (typeof dataTrajectoryId === 'string') {
-                    if (dataTrajectoryId.includes('_')) {
-                        const parts = dataTrajectoryId.split('_');
-                        const trajectoryIndexPart = parseInt(parts[parts.length - 1]);
-                        return trajectoryIndexPart === selectedTrajectory;
-                    } else {
-                        return parseInt(dataTrajectoryId) === selectedTrajectory;
-                    }
-                } else {
-                    return dataTrajectoryId === selectedTrajectory;
-                }
-            });
-        }
     };
 
-    const drawStar = (parent, cx, cy, radius, color, opacity = 1, className = '') => {
+    const drawStar = (
+        parent,
+        cx,
+        cy,
+        radius,
+        color,
+        opacity = 1,
+        className = "",
+    ) => {
         const starPoints = 5;
         const angle = Math.PI / starPoints;
         let path = "";
@@ -1185,7 +1236,8 @@ export const GeneralTrajectoryGlyph = ({
         }
         path += " Z";
 
-        return parent.append("path")
+        return parent
+            .append("path")
             .attr("class", className)
             .attr("d", path)
             .attr("fill", color)
@@ -1195,7 +1247,10 @@ export const GeneralTrajectoryGlyph = ({
     };
 
     const legendItems = (() => {
-        if (!trajectoryData?.trajectory_objects || !Array.isArray(trajectoryData.trajectory_objects)) {
+        if (
+            !trajectoryData?.trajectory_objects ||
+            !Array.isArray(trajectoryData.trajectory_objects)
+        ) {
             return [];
         }
         return trajectoryData.trajectory_objects.map((traj, i) => ({
@@ -1213,20 +1268,16 @@ export const GeneralTrajectoryGlyph = ({
             const nodes = svg.selectAll(`.trajectory-node-${index}`);
             if (!path.empty()) {
                 if (index === hoveredIndex) {
-                    path.attr("stroke", COLORS[index % COLORS.length]).attr("stroke-width", 4).attr("opacity", 1);
-                    nodes.each(function () {
-                        const node = d3.select(this);
-                        let originalColor = COLORS[index % COLORS.length];
-                        if (clusterColors) {
-                            const clusterAttr = node.attr("data-cluster");
-                            if (clusterAttr && clusterColors[clusterAttr]) {
-                                originalColor = clusterColors[clusterAttr];
-                            }
-                        }
-                        node.attr("fill", originalColor).attr("opacity", 1);
-                    });
+                    path
+                        .attr("stroke", COLORS[index % COLORS.length])
+                        .attr("stroke-width", 4)
+                        .attr("opacity", 1);
+                    nodes.attr("fill", "#666666").attr("opacity", 1);
                 } else {
-                    path.attr("stroke", "#CCCCCC").attr("stroke-width", 3).attr("opacity", 0.2);
+                    path
+                        .attr("stroke", "#CCCCCC")
+                        .attr("stroke-width", 3)
+                        .attr("opacity", 0.2);
                     nodes.attr("fill", "#CCCCCC").attr("opacity", 0.2);
                 }
             }
@@ -1240,20 +1291,16 @@ export const GeneralTrajectoryGlyph = ({
             const nodes = svg.selectAll(`.trajectory-node-${index}`);
             if (!path.empty()) {
                 if (index === selectedTrajectory) {
-                    path.attr("stroke", COLORS[index % COLORS.length]).attr("stroke-width", 5).attr("opacity", 1);
-                    nodes.each(function () {
-                        const node = d3.select(this);
-                        let originalColor = COLORS[index % COLORS.length];
-                        if (clusterColors) {
-                            const clusterAttr = node.attr("data-cluster");
-                            if (clusterAttr && clusterColors[clusterAttr]) {
-                                originalColor = clusterColors[clusterAttr];
-                            }
-                        }
-                        node.attr("fill", originalColor).attr("opacity", 1);
-                    });
+                    path
+                        .attr("stroke", COLORS[index % COLORS.length])
+                        .attr("stroke-width", 5)
+                        .attr("opacity", 1);
+                    nodes.attr("fill", "#666666").attr("opacity", 1);
                 } else {
-                    path.attr("stroke", "#CCCCCC").attr("stroke-width", 3).attr("opacity", 0.2);
+                    path
+                        .attr("stroke", "#CCCCCC")
+                        .attr("stroke-width", 3)
+                        .attr("opacity", 0.2);
                     nodes.attr("fill", "#CCCCCC").attr("opacity", 0.2);
                 }
             }
@@ -1304,7 +1351,14 @@ export const GeneralTrajectoryGlyph = ({
                                 cursor: "pointer",
                             }}
                         >
-                            <div style={{ width: 8, height: 8, backgroundColor: item.color, flexShrink: 0 }} />
+                            <div
+                                style={{
+                                    width: 8,
+                                    height: 8,
+                                    backgroundColor: item.color,
+                                    flexShrink: 0,
+                                }}
+                            />
                             <span
                                 style={{
                                     color: "#333",

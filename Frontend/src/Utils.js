@@ -1,4 +1,4 @@
-/** ColorBrewer Set3-inspired palette for trajectory / category encoding */
+/** ColorBrewer Set3-inspired palette for trajectory */
 export const COLOR_BREWER2_PALETTE = [
     "#7fc97f",
     "#386cb0",
