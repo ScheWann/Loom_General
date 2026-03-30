@@ -1360,9 +1360,13 @@ export const GeneralTrajectoryGlyph = ({
                         top: 8,
                         right: 8,
                         zIndex: 2,
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        rowGap: 4,
                         backgroundColor: "rgba(255, 255, 255, 0.85)",
                         borderRadius: 4,
-                        padding: "4px 8px",
+                        padding: "6px 8px",
                         boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
                         maxWidth: "46%",
                         fontSize: 11,
@@ -1379,12 +1383,13 @@ export const GeneralTrajectoryGlyph = ({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 6,
-                                marginBottom: 4,
+                                minHeight: 14,
                                 cursor: "pointer",
                             }}
                         >
                             <div
                                 style={{
+                                    display: "block",
                                     width: 8,
                                     height: 8,
                                     backgroundColor: item.color,
@@ -1393,6 +1398,8 @@ export const GeneralTrajectoryGlyph = ({
                             />
                             <span
                                 style={{
+                                    display: "block",
+                                    lineHeight: "14px",
                                     color: "#333",
                                     fontWeight: item.index === selectedTrajectory ? 600 : 400,
                                 }}
