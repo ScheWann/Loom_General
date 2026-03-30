@@ -1,12 +1,14 @@
 # Loom: General Trajectory Glyph
 
-A visual analytics project for joint representation of temporal trajectories and multivariate signals. It provides a reusable General Trajectory Glyph component that combines path evolution and multi-metric variation in a single view, suitable for time-progressive data.
+This repository provides the new glyph used in the **[Loom](https://github.com/ScheWann/Loom)**.
+
+___A reusable General Trajectory Glyph component that combines path evolution and multi-metric variation in a single view, suitable for time-progressive data___.
 
 ![General Trajectory Glyph](Image/Glyph_General.png)
 
 ## What Data Is Demonstrated
 
-This repository currently includes two integrated demo datasets:
+This repository currently includes two integrated non-biology-related demo datasets:
 
 1. Climate 2014-2024  
 	Source: https://www.kaggle.com/datasets/sergionefedov/climate-and-weather-anomalies-196-cities-75-years
