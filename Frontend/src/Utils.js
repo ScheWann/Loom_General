@@ -9,3 +9,15 @@ export const COLOR_BREWER2_PALETTE = [
     "#bf5b17",
     "#666666",
 ];
+
+
+export const COLOR_BREWER2_PALETTE_SPECIFIC = [
+    '#a6761d',
+    '#7570b3',
+    '#e6ab02',
+    '#e7298a',
+    '#d95f02',
+    '#1b9e77',
+    '#66a61e',
+    '#666666',
+];

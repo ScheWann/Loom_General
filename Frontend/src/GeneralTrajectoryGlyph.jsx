@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import * as d3 from "d3";
-import { COLOR_BREWER2_PALETTE } from "./Utils";
+import { COLOR_BREWER2_PALETTE, COLOR_BREWER2_PALETTE_SPECIFIC } from "./Utils";
 
 const COLORS = COLOR_BREWER2_PALETTE;
+const SERIES_COLORS = COLOR_BREWER2_PALETTE_SPECIFIC;
 
 /**
  * Map neutral demo JSON → shape expected by the D3 layer.
@@ -975,8 +976,9 @@ export const GeneralTrajectoryGlyph = ({
             .domain([0, 1])
             .range([Math.PI, 2 * Math.PI]); // From left side (180°) to right side (360°) through upper half
 
-        // Series colors using custom color scheme
-        const seriesColors = COLORS;
+        // Series colors using the attribute-specific palette so each upper-semicircle
+        // curve matches its entry in the series legend.
+        const seriesColors = SERIES_COLORS;
 
         seriesDataUpper.forEach((seriesInfo, seriesIndex) => {
             const color = seriesColors[seriesIndex % seriesColors.length];
@@ -1293,6 +1295,22 @@ export const GeneralTrajectoryGlyph = ({
         }));
     })();
 
+    // Legend for the upper-semicircle series curves. Mirrors the filtering done in
+    // createTopSection (in_minus_out lives on the lower semicircle, not as a curve)
+    // so colors line up with what is drawn.
+    const seriesLegendItems = (() => {
+        if (!selectedSeriesData || !Array.isArray(selectedSeriesData)) {
+            return [];
+        }
+        return selectedSeriesData
+            .filter((s) => s.id !== "in_minus_out")
+            .map((s, i) => ({
+                index: i,
+                id: s.id,
+                color: SERIES_COLORS[i % SERIES_COLORS.length],
+            }));
+    })();
+
     const handleLegendEnter = (hoveredIndex) => {
         const svg = d3.select(svgRef.current);
         legendItems.forEach((item, index) => {
@@ -1353,6 +1371,62 @@ export const GeneralTrajectoryGlyph = ({
                 ...style,
             }}
         >
+            {seriesLegendItems.length > 0 && (
+                <div
+                    style={{
+                        position: "absolute",
+                        top: 8,
+                        left: 8,
+                        zIndex: 2,
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        rowGap: 4,
+                        backgroundColor: "rgba(255, 255, 255, 0.85)",
+                        borderRadius: 4,
+                        padding: "6px 8px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+                        maxWidth: "46%",
+                        fontSize: 11,
+                    }}
+                >
+                    {seriesLegendItems.map((item) => (
+                        <div
+                            key={item.id}
+                            title={item.id}
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                minHeight: 14,
+                            }}
+                        >
+                            <div
+                                style={{
+                                    display: "block",
+                                    width: 12,
+                                    height: 3,
+                                    borderRadius: 2,
+                                    backgroundColor: item.color,
+                                    flexShrink: 0,
+                                }}
+                            />
+                            <span
+                                style={{
+                                    display: "block",
+                                    lineHeight: "14px",
+                                    color: "#333",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                }}
+                            >
+                                {item.id}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
             {legendItems.length > 0 && (
                 <div
                     style={{
