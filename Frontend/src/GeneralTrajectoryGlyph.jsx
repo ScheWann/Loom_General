@@ -91,9 +91,13 @@ export const GeneralTrajectoryGlyph = ({
     expressionData,
     selectedTrajectory: selectedTrajectoryProp,
     onTrajectoryChange,
+    trajectoryColors: trajectoryColorsProp,
     className,
     style,
 }) => {
+    // Palette for the lower-semicircle trajectory curves + their legend. Falls back to
+    // the default palette; pass a distinct one to keep two glyphs visually separable.
+    const trajectoryPalette = trajectoryColorsProp ?? COLORS;
     const adaptedDemoData = useMemo(() => {
         if (!demoData) return null;
         return adaptDemoJsonToGlyphPayload(demoData);
@@ -601,7 +605,7 @@ export const GeneralTrajectoryGlyph = ({
         });
 
         // Color scale for different trajectories
-        const trajectoryColors = COLORS;
+        const trajectoryColors = trajectoryPalette;
 
         // Draw each trajectory
         const trajectories =
@@ -1290,7 +1294,7 @@ export const GeneralTrajectoryGlyph = ({
         return trajectoryData.trajectory_objects.map((traj, i) => ({
             index: i,
             name: traj.name || `Trajectory ${i + 1}`,
-            color: COLORS[i % COLORS.length],
+            color: trajectoryPalette[i % trajectoryPalette.length],
             sequence: Array.isArray(traj.path) ? traj.path.join(" → ") : "",
         }));
     })();
@@ -1319,7 +1323,7 @@ export const GeneralTrajectoryGlyph = ({
             if (!path.empty()) {
                 if (index === hoveredIndex) {
                     path
-                        .attr("stroke", COLORS[index % COLORS.length])
+                        .attr("stroke", trajectoryPalette[index % trajectoryPalette.length])
                         .attr("stroke-width", 4)
                         .attr("opacity", 1);
                     nodes.attr("fill", "#666666").attr("opacity", 1);
@@ -1342,7 +1346,7 @@ export const GeneralTrajectoryGlyph = ({
             if (!path.empty()) {
                 if (index === selectedTrajectory) {
                     path
-                        .attr("stroke", COLORS[index % COLORS.length])
+                        .attr("stroke", trajectoryPalette[index % trajectoryPalette.length])
                         .attr("stroke-width", 5)
                         .attr("opacity", 1);
                     nodes.attr("fill", "#666666").attr("opacity", 1);

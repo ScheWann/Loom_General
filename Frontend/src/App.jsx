@@ -1,8 +1,14 @@
 import { GeneralTrajectoryGlyph } from "./GeneralTrajectoryGlyph.jsx";
+import { COLOR_BREWER2_PALETTE_TRAJECTORY_ALT } from "./Utils.js";
 import demoDataA from "./data/contrails2MaxClusterGlyph.json";
 import demoDataB from "./data/climateGlyph.json";
 
-const glyphDatasets = [demoDataA, demoDataB];
+// The climate glyph (demoDataB) uses a distinct trajectory palette so its
+// lower-semicircle curves don't reuse the contrail glyph's colors.
+const glyphDatasets = [
+  { data: demoDataA },
+  { data: demoDataB, trajectoryColors: COLOR_BREWER2_PALETTE_TRAJECTORY_ALT },
+];
 
 function App() {
   return (
@@ -26,7 +32,7 @@ function App() {
           boxSizing: "border-box",
         }}
       >
-        {glyphDatasets.map((demoData, index) => (
+        {glyphDatasets.map(({ data: demoData, trajectoryColors }, index) => (
           <div
             key={`${demoData?.paths?.[0]?.label || "dataset"}-${index}`}
             style={{
@@ -41,6 +47,7 @@ function App() {
           >
             <GeneralTrajectoryGlyph
               demoData={demoData}
+              trajectoryColors={trajectoryColors}
               title={demoData?.paths?.[0]?.label || `Dataset ${index + 1}`}
             />
           </div>

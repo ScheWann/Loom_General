@@ -21,3 +21,16 @@ export const COLOR_BREWER2_PALETTE_SPECIFIC = [
     '#66a61e',
     '#666666',
 ];
+
+/** Distinct trajectory palette (ColorBrewer Paired-inspired) so a glyph can avoid
+ *  reusing the default COLOR_BREWER2_PALETTE colors for its lower-semicircle curves. */
+export const COLOR_BREWER2_PALETTE_TRAJECTORY_ALT = [
+    "#1f78b4",
+    "#33a02c",
+    "#e31a1c",
+    "#ff7f00",
+    "#6a3d9a",
+    "#b15928",
+    "#a6cee3",
+    "#666666",
+];
